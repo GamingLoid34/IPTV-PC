@@ -1,4 +1,13 @@
-import { useState, type FormEvent, type ChangeEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  type FormEvent,
+  type ChangeEvent,
+} from "react";
+import { LoginForm } from "@/components/LoginForm";
+import { CategoryList } from "@/components/CategoryList";
+import { loadPlaylist, savePlaylist, clearPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
   XtreamCategory,
@@ -22,6 +31,73 @@ export default function Home() {
   const [form, setForm] = useState<FormState>(initialValues);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<SubmitResult>(null);
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+
+  const fetchCategories = useCallback(
+    async (
+      credentials: XtreamCredentials,
+      options: { persistOnSuccess?: boolean } = {}
+    ) => {
+      setIsLoading(true);
+      setResult(null);
+      try {
+        const response = await fetch("/api/xtream/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials),
+        });
+
+        const data: unknown = await response.json();
+
+        if (response.ok) {
+          if (Array.isArray(data)) {
+            setResult({ categories: data as XtreamCategory[] });
+            if (options.persistOnSuccess) {
+              savePlaylist(credentials);
+            }
+          } else {
+            setResult({ error: "Oväntat svar från servern." });
+          }
+          return;
+        }
+
+        const errBody = data as ApiErrorResponse;
+        setResult({
+          error:
+            typeof errBody?.error === "string"
+              ? errBody.error
+              : "Ett fel uppstod.",
+        });
+      } catch {
+        setResult({
+          error: "Nätverksfel: kunde inte kontakta servern.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      const stored = loadPlaylist();
+      if (stored) {
+        setForm(stored);
+        await fetchCategories(stored, { persistOnSuccess: false });
+      }
+      if (!cancelled) {
+        setHasLoadedFromStorage(true);
+      }
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchCategories]);
 
   const handleFieldChange = (field: keyof FormState) => {
     return (e: ChangeEvent<HTMLInputElement>) => {
@@ -31,48 +107,22 @@ export default function Home() {
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsLoading(true);
-    setResult(null);
-
     const credentials: XtreamCredentials = {
       serverUrl: form.serverUrl,
       username: form.username,
       password: form.password,
     };
-
-    try {
-      const response = await fetch("/api/xtream/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credentials),
-      });
-
-      const data: unknown = await response.json();
-
-      if (response.ok) {
-        if (Array.isArray(data)) {
-          setResult({ categories: data as XtreamCategory[] });
-        } else {
-          setResult({ error: "Oväntat svar från servern." });
-        }
-        return;
-      }
-
-      const errBody = data as ApiErrorResponse;
-      setResult({
-        error:
-          typeof errBody?.error === "string"
-            ? errBody.error
-            : "Ett fel uppstod.",
-      });
-    } catch {
-      setResult({
-        error: "Nätverksfel: kunde inte kontakta servern.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    await fetchCategories(credentials, { persistOnSuccess: true });
   };
+
+  const handleForget = () => {
+    clearPlaylist();
+    setForm(initialValues);
+    setResult(null);
+  };
+
+  const showCategoryView = hasLoadedFromStorage && Boolean(result?.categories);
+  const formError = result?.error ?? null;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-900 px-4 text-zinc-100">
@@ -82,99 +132,30 @@ export default function Home() {
             IPTV-PC
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Lägg till din Xtream-spellista
+            {showCategoryView ? "Spellista" : "Lägg till din Xtream-spellista"}
           </p>
         </div>
 
-        <form className="space-y-5" onSubmit={onSubmit} noValidate>
-          <div className="space-y-2">
-            <label
-              htmlFor="serverUrl"
-              className="block text-sm font-medium text-zinc-200"
-            >
-              Server URL
-            </label>
-            <input
-              id="serverUrl"
-              name="serverUrl"
-              type="url"
-              autoComplete="url"
-              placeholder="http://server.example.com"
-              value={form.serverUrl}
-              onChange={handleFieldChange("serverUrl")}
-              disabled={isLoading}
-              className="w-full rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-zinc-100 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="username"
-              className="block text-sm font-medium text-zinc-200"
-            >
-              Username
-            </label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              value={form.username}
-              onChange={handleFieldChange("username")}
-              disabled={isLoading}
-              className="w-full rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-zinc-200"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={form.password}
-              onChange={handleFieldChange("password")}
-              disabled={isLoading}
-              className="w-full rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400/60 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isLoading ? "Ansluter..." : "Anslut"}
-          </button>
-        </form>
-
-        {isLoading && (
-          <p className="text-center text-sm text-zinc-300">Ansluter...</p>
+        {!hasLoadedFromStorage && (
+          <p className="text-center text-sm text-zinc-300">Laddar...</p>
         )}
 
-        {result?.error && (
-          <p className="text-center text-sm text-red-400" role="alert">
-            {result.error}
-          </p>
+        {hasLoadedFromStorage && showCategoryView && result?.categories && (
+          <CategoryList
+            serverUrl={form.serverUrl}
+            categories={result.categories}
+            onForget={handleForget}
+          />
         )}
 
-        {result?.categories && (
-          <div className="space-y-2 text-sm text-zinc-200">
-            <p className="text-zinc-400">
-              {result.categories.length} kategorier
-            </p>
-            <ul className="max-h-48 list-inside list-disc space-y-1 overflow-y-auto rounded border border-zinc-700 p-2">
-              {result.categories.map((c) => (
-                <li key={String(c.category_id)}>{c.category_name}</li>
-              ))}
-            </ul>
-          </div>
+        {hasLoadedFromStorage && !showCategoryView && (
+          <LoginForm
+            form={form}
+            isLoading={isLoading}
+            error={formError}
+            onFieldChange={handleFieldChange}
+            onSubmit={onSubmit}
+          />
         )}
       </div>
     </div>
