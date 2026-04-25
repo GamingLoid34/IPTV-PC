@@ -44,6 +44,7 @@ export default function WatchPage() {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("idle");
   const [playerError, setPlayerError] = useState<PlayerError | null>(null);
+  const [nonFatalEventsCount, setNonFatalEventsCount] = useState(0);
 
   const streamIdValue = useMemo(
     () => (typeof streamId === "string" ? streamId : null),
@@ -82,6 +83,7 @@ export default function WatchPage() {
     setStreamUrl(url);
     setPlayerStatus("loading");
     setPlayerError(null);
+    setNonFatalEventsCount(0);
   }, [router, streamId, streamIdValue]);
 
   const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
@@ -124,7 +126,15 @@ export default function WatchPage() {
             if (isMounted) setPlayerStatus("ready");
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
-            console.error("[HLS] ERROR", data);
+            if (!data.fatal) {
+              console.warn("[HLS] Non-fatal event", data);
+              if (isMounted) {
+                setNonFatalEventsCount((prev) => prev + 1);
+              }
+              return;
+            }
+
+            console.error("[HLS] Fatal error", data);
 
             let message = "HLS-fel vid uppspelning.";
             if (
@@ -247,6 +257,12 @@ export default function WatchPage() {
           <p className="text-zinc-300">
             <span className="font-medium text-zinc-100">hls.js-state:</span>{" "}
             {playerStatus}
+          </p>
+          <p className="text-zinc-300">
+            <span className="font-medium text-zinc-100">
+              Non-fatal events:
+            </span>{" "}
+            {nonFatalEventsCount}
           </p>
           {playerError && (
             <div className="space-y-1">
