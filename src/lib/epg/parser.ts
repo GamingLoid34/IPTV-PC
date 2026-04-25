@@ -1,4 +1,4 @@
-import sax from "sax";
+import * as sax from "sax";
 import type { EpgChannel, EpgProgramme } from "@/types/epg";
 
 type ChannelDraft = {
@@ -61,125 +61,183 @@ export async function parseXmltvStream(
   onChannel: (channel: EpgChannel) => void,
   onProgramme: (programme: EpgProgramme) => void
 ): Promise<void> {
-  const saxStream = sax.createStream(true, { trim: false, normalize: false });
-
-  let currentChannel: ChannelDraft | null = null;
-  let currentProgramme: ProgrammeDraft | null = null;
-  let activeTextTag: "display-name" | "title" | "desc" | "category" | "episode-num" | null =
-    null;
-  let textBuffer = "";
-
-  saxStream.on("opentag", (node) => {
-    const tag = node.name.toLowerCase();
-
-    if (tag === "channel") {
-      const id = String(node.attributes.id ?? "").trim();
-      if (!id) {
-        throw new Error("XMLTV channel saknar id.");
-      }
-      currentChannel = { id, displayName: "" };
-      return;
-    }
-
-    if (tag === "icon" && currentChannel) {
-      const src = String(node.attributes.src ?? "").trim();
-      if (src) {
-        currentChannel.icon = src;
-      }
-      return;
-    }
-
-    if (tag === "programme") {
-      const channelId = String(node.attributes.channel ?? "").trim();
-      const startRaw = String(node.attributes.start ?? "").trim();
-      const stopRaw = String(node.attributes.stop ?? "").trim();
-      if (!channelId || !startRaw || !stopRaw) {
-        throw new Error("XMLTV programme saknar channel/start/stop.");
-      }
-      currentProgramme = {
-        channelId,
-        start: parseXmltvDate(startRaw),
-        stop: parseXmltvDate(stopRaw),
-        title: "",
-        categories: [],
-      };
-      return;
-    }
-
-    if (
-      tag === "display-name" ||
-      tag === "title" ||
-      tag === "desc" ||
-      tag === "category" ||
-      tag === "episode-num"
-    ) {
-      activeTextTag = tag;
-      textBuffer = "";
-    }
-  });
-
-  saxStream.on("text", (text) => {
-    if (!activeTextTag) return;
-    textBuffer += text;
-  });
-
-  saxStream.on("cdata", (text) => {
-    if (!activeTextTag) return;
-    textBuffer += text;
-  });
-
-  saxStream.on("closetag", (name) => {
-    const tag = String(name).toLowerCase();
-    const normalizedText = textBuffer.trim();
-
-    if (tag === "display-name" && currentChannel && normalizedText) {
-      if (!currentChannel.displayName) {
-        currentChannel.displayName = normalizedText;
-      }
-    } else if (tag === "title" && currentProgramme && normalizedText) {
-      currentProgramme.title = normalizedText;
-    } else if (tag === "desc" && currentProgramme && normalizedText) {
-      currentProgramme.description = normalizedText;
-    } else if (tag === "category" && currentProgramme && normalizedText) {
-      currentProgramme.categories.push(normalizedText);
-    } else if (tag === "episode-num" && currentProgramme && normalizedText) {
-      currentProgramme.episodeNum = normalizedText;
-    } else if (tag === "channel" && currentChannel) {
-      if (!currentChannel.displayName) {
-        currentChannel.displayName = currentChannel.id;
-      }
-      onChannel({
-        id: currentChannel.id,
-        displayName: currentChannel.displayName,
-        icon: currentChannel.icon,
-      });
-      currentChannel = null;
-    } else if (tag === "programme" && currentProgramme) {
-      if (!currentProgramme.title) {
-        currentProgramme.title = "(untitled)";
-      }
-      onProgramme({
-        channelId: currentProgramme.channelId,
-        start: currentProgramme.start,
-        stop: currentProgramme.stop,
-        title: currentProgramme.title,
-        description: currentProgramme.description,
-        categories: currentProgramme.categories,
-        episodeNum: currentProgramme.episodeNum,
-      });
-      currentProgramme = null;
-    }
-
-    if (tag === activeTextTag) {
-      activeTextTag = null;
-      textBuffer = "";
-    }
-  });
-
   return await new Promise<void>((resolve, reject) => {
-    saxStream.on("error", (error) => reject(error));
-    saxStream.on("end", () => resolve());
-    stream.on("error", (error) => reject(error));
-    stream.pipe(saxStream);
+    const parser = sax.parser(false, {
+      trim: true,
+      normalize: true,
+      lowercase: false,
+      xmlns: false,
+      position: true,
+    });
+
+    let currentChannel: ChannelDraft | null = null;
+    let currentProgramme: ProgrammeDraft | null = null;
+    let activeTextTag:
+      | "display-name"
+      | "title"
+      | "desc"
+      | "category"
+      | "episode-num"
+      | null = null;
+    let textBuffer = "";
+    let settled = false;
+
+    const finishReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    const finishResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    parser.onopentag = (node) => {
+      const tag = node.name.toLowerCase();
+
+      if (tag === "channel") {
+        const id = String(node.attributes.id ?? "").trim();
+        if (!id) {
+          finishReject(new Error("XMLTV channel saknar id."));
+          return;
+        }
+        currentChannel = { id, displayName: "" };
+        return;
+      }
+
+      if (tag === "icon" && currentChannel) {
+        const src = String(node.attributes.src ?? "").trim();
+        if (src) {
+          currentChannel.icon = src;
+        }
+        return;
+      }
+
+      if (tag === "programme") {
+        const channelId = String(node.attributes.channel ?? "").trim();
+        const startRaw = String(node.attributes.start ?? "").trim();
+        const stopRaw = String(node.attributes.stop ?? "").trim();
+        if (!channelId || !startRaw || !stopRaw) {
+          finishReject(new Error("XMLTV programme saknar channel/start/stop."));
+          return;
+        }
+        try {
+          currentProgramme = {
+            channelId,
+            start: parseXmltvDate(startRaw),
+            stop: parseXmltvDate(stopRaw),
+            title: "",
+            categories: [],
+          };
+        } catch (error) {
+          finishReject(error);
+        }
+        return;
+      }
+
+      if (
+        tag === "display-name" ||
+        tag === "title" ||
+        tag === "desc" ||
+        tag === "category" ||
+        tag === "episode-num"
+      ) {
+        activeTextTag = tag;
+        textBuffer = "";
+      }
+    };
+
+    parser.ontext = (text) => {
+      if (!activeTextTag) return;
+      textBuffer += text;
+    };
+
+    parser.oncdata = (text) => {
+      if (!activeTextTag) return;
+      textBuffer += text;
+    };
+
+    parser.onclosetag = (name) => {
+      const tag = String(name).toLowerCase();
+      const normalizedText = textBuffer.trim();
+
+      if (tag === "display-name" && currentChannel && normalizedText) {
+        if (!currentChannel.displayName) {
+          currentChannel.displayName = normalizedText;
+        }
+      } else if (tag === "title" && currentProgramme && normalizedText) {
+        currentProgramme.title = normalizedText;
+      } else if (tag === "desc" && currentProgramme && normalizedText) {
+        currentProgramme.description = normalizedText;
+      } else if (tag === "category" && currentProgramme && normalizedText) {
+        currentProgramme.categories.push(normalizedText);
+      } else if (tag === "episode-num" && currentProgramme && normalizedText) {
+        currentProgramme.episodeNum = normalizedText;
+      } else if (tag === "channel" && currentChannel) {
+        if (!currentChannel.displayName) {
+          currentChannel.displayName = currentChannel.id;
+        }
+        onChannel({
+          id: currentChannel.id,
+          displayName: currentChannel.displayName,
+          icon: currentChannel.icon,
+        });
+        currentChannel = null;
+      } else if (tag === "programme" && currentProgramme) {
+        if (!currentProgramme.title) {
+          currentProgramme.title = "(untitled)";
+        }
+        onProgramme({
+          channelId: currentProgramme.channelId,
+          start: currentProgramme.start,
+          stop: currentProgramme.stop,
+          title: currentProgramme.title,
+          description: currentProgramme.description,
+          categories: currentProgramme.categories,
+          episodeNum: currentProgramme.episodeNum,
+        });
+        currentProgramme = null;
+      }
+
+      if (tag === activeTextTag) {
+        activeTextTag = null;
+        textBuffer = "";
+      }
+    };
+
+    parser.onerror = (err) => {
+      console.warn("[EPG] sax parser warning:", err.message);
+      (parser as any).error = null;
+      parser.resume();
+    };
+
+    parser.onend = () => {
+      finishResolve();
+    };
+
+    stream.on("data", (chunk: Buffer | string) => {
+      if (settled) return;
+      try {
+        const str = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        parser.write(str);
+      } catch (error) {
+        finishReject(error);
+      }
+    });
+
+    stream.on("end", () => {
+      if (settled) return;
+      try {
+        parser.close();
+      } catch (error) {
+        finishReject(error);
+      }
+    });
+
+    stream.on("error", (error) => {
+      finishReject(error);
+    });
   });
 }
