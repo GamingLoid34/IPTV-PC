@@ -185,7 +185,11 @@ export default function CategoryPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    console.log("Selected stream_id:", stream.stream_id);
+                    void router.push(
+                      `/watch/${stream.stream_id}?categoryId=${encodeURIComponent(
+                        categoryId ?? ""
+                      )}`
+                    );
                   }}
                   className="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-left transition hover:border-zinc-500 hover:bg-zinc-700/60"
                 >
