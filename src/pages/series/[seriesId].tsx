@@ -405,12 +405,12 @@ export default function SeriesDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              console.log("episode:", {
-                                id: episode.id,
-                                container_extension: episode.container_extension,
-                                season: episode.season,
-                                episode_num: episode.episode_num,
-                              });
+                              if (parsedSeriesId == null) return;
+                              void router.push(
+                                `/series/${parsedSeriesId}/watch/${encodeURIComponent(
+                                  episode.id
+                                )}`
+                              );
                             }}
                             className="flex w-full items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 p-3 text-left transition hover:border-zinc-500 hover:bg-zinc-700/50"
                           >
