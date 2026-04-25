@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { CategorySplitView } from "@/components/CategorySplitView";
+import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
@@ -269,8 +270,11 @@ export default function MoviesIndexPage() {
                         );
                       }}
                     >
-                      <div className="transition duration-200 group-hover:scale-105">
+                      <div className="relative transition duration-200 group-hover:scale-105">
                         <MoviePoster movieName={movie.name} streamIcon={movie.stream_icon} />
+                        <div className="absolute right-2 top-2 rounded bg-black/55">
+                          <FavoriteToggle type="movies" id={movie.stream_id} name={movie.name} />
+                        </div>
                       </div>
                       <p className="mt-2 line-clamp-2 text-xs text-zinc-200">{movie.name}</p>
                     </button>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { CategorySplitView } from "@/components/CategorySplitView";
+import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
@@ -269,8 +270,11 @@ export default function SeriesIndexPage() {
                         );
                       }}
                     >
-                      <div className="transition duration-200 group-hover:scale-105">
+                      <div className="relative transition duration-200 group-hover:scale-105">
                         <SeriesPoster seriesName={series.name} cover={series.cover} />
+                        <div className="absolute right-2 top-2 rounded bg-black/55">
+                          <FavoriteToggle type="series" id={series.series_id} name={series.name} />
+                        </div>
                       </div>
                       <p className="mt-2 line-clamp-2 text-xs text-zinc-200">{series.name}</p>
                     </button>

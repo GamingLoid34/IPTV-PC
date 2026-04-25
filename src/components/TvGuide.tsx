@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import { FavoriteToggle } from "@/components/FavoriteToggle";
 import type { EpgProgramme } from "@/types/epg";
 import type { XtreamLiveStream } from "@/types/xtream";
 
@@ -325,15 +326,20 @@ export function TvGuide({ channels, categoryId }: TvGuideProps) {
                 className="flex border-b border-zinc-800/80"
                 style={{ height: ROW_HEIGHT }}
               >
-                <button
-                  type="button"
-                  onClick={() => navigateToWatch(channel.stream_id, channel.name)}
-                  className="sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r border-zinc-700 bg-zinc-900/95 px-2 text-left hover:bg-zinc-800"
+                <div
+                  className="sticky left-0 z-20 flex shrink-0 items-center gap-1 border-r border-zinc-700 bg-zinc-900/95 px-2"
                   style={{ width: LEFT_COLUMN_WIDTH }}
                 >
-                  <StreamIcon name={channel.name} streamIcon={channel.stream_icon} />
-                  <span className="truncate text-xs text-zinc-100">{channel.name}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateToWatch(channel.stream_id, channel.name)}
+                    className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left hover:bg-zinc-800"
+                  >
+                    <StreamIcon name={channel.name} streamIcon={channel.stream_icon} />
+                    <span className="truncate text-xs text-zinc-100">{channel.name}</span>
+                  </button>
+                  <FavoriteToggle type="live" id={channel.stream_id} name={channel.name} />
+                </div>
 
                 <div className="relative overflow-hidden" style={{ width: totalGridWidth }}>
                   <div className="absolute inset-0">

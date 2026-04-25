@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import { Star } from "lucide-react";
+import { useFavorites } from "@/lib/useFavorites";
 import { clearPlaylist, loadPlaylist } from "@/lib/playlistStorage";
 import type { EpgManifest } from "@/types/epg";
 
@@ -19,6 +21,10 @@ export function TopNav() {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toastText, setToastText] = useState<string | null>(null);
+  const liveFavs = useFavorites("live");
+  const movieFavs = useFavorites("movies");
+  const seriesFavs = useFavorites("series");
+  const totalFavorites = liveFavs.count + movieFavs.count + seriesFavs.count;
 
   const handleForget = () => {
     clearPlaylist();
@@ -141,6 +147,22 @@ export function TopNav() {
                 {item.label}
               </Link>
             ))}
+            <Link
+              href="/favorites"
+              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                isActive("/favorites")
+                  ? "bg-zinc-700 text-white"
+                  : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              }`}
+            >
+              <Star size={14} className="text-amber-400" fill="currentColor" />
+              <span>Favoriter</span>
+              {totalFavorites > 0 && (
+                <span className="rounded-full bg-zinc-600 px-1.5 py-0.5 text-[10px] text-zinc-100">
+                  {totalFavorites}
+                </span>
+              )}
+            </Link>
           </nav>
 
           <div className="relative">

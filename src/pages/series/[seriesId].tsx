@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import { Play } from "lucide-react";
+import { FavoriteToggle } from "@/components/FavoriteToggle";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
@@ -311,7 +312,14 @@ export default function SeriesDetailPage() {
                 </div>
 
                 <div className="min-w-0 flex-1 space-y-4">
-                  <h1 className="text-3xl font-bold tracking-tight text-white">{title}</h1>
+                  <div className="flex items-center justify-between gap-3">
+                    <h1 className="text-3xl font-bold tracking-tight text-white">{title}</h1>
+                    {parsedSeriesId != null && (
+                      <div className="rounded bg-zinc-950/50">
+                        <FavoriteToggle type="series" id={parsedSeriesId} name={title} size="md" />
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-zinc-300">
                     {metaParts.length > 0 ? (
