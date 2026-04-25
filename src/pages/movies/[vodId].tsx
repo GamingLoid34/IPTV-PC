@@ -206,8 +206,8 @@ export default function MovieDetailPage() {
         </div>
       </section>
 
-      <section className="mx-auto -mt-28 w-full max-w-6xl px-4">
-        <div className="relative z-10 rounded-2xl border border-zinc-700 bg-zinc-900/85 p-6 shadow-2xl">
+      <section className="relative z-20 mx-auto -mt-20 w-full max-w-6xl px-4 md:-mt-24">
+        <div className="rounded-2xl border border-zinc-700 bg-zinc-900/85 p-6 shadow-2xl">
           {state.isLoading && <p className="text-sm text-zinc-300">Laddar...</p>}
 
           {!state.isLoading && state.error && (
@@ -223,8 +223,8 @@ export default function MovieDetailPage() {
           )}
 
           {!state.isLoading && !state.error && state.data && (
-            <div className="flex flex-col gap-8 md:flex-row">
-              <div className="-mt-16 w-full md:mt-0 md:w-[250px]">
+            <div className="flex flex-col items-start gap-8 md:flex-row">
+              <div className="-mt-28 w-full max-w-[250px] md:-mt-36 md:w-[250px]">
                 <div className="aspect-[2/3] overflow-hidden rounded-xl border border-zinc-700 bg-zinc-800 shadow-xl">
                   {posterUrl && !hasPosterError ? (
                     <img
