@@ -21,6 +21,49 @@ function toJson(data: unknown): string {
   return `${JSON.stringify(data)}\n`;
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function renameWithRetry(
+  from: string,
+  to: string,
+  maxAttempts = 5
+): Promise<void> {
+  const delays = [50, 100, 250, 500, 1000];
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await rename(from, to);
+      if (attempt > 1) {
+        console.info(`[EPG] Rename succeeded on attempt ${attempt}`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      const code =
+        error instanceof Error && "code" in error
+          ? (error as NodeJS.ErrnoException).code
+          : "unknown";
+
+      if (code !== "EPERM" && code !== "EBUSY" && code !== "ENOTEMPTY") {
+        throw error;
+      }
+
+      if (attempt < maxAttempts) {
+        const delay = delays[attempt - 1] ?? delays[delays.length - 1];
+        console.warn(
+          `[EPG] Rename failed with ${code}, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`
+        );
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export async function fetchAndCacheEpg(
   credentials: XtreamCredentials
 ): Promise<EpgManifest> {
@@ -178,12 +221,14 @@ export async function fetchAndCacheEpg(
     try {
       await rm(CACHE_ROOT, { recursive: true, force: true });
       console.info("[EPG] Removed existing cache dir for replacement");
+      // Windows: give the filesystem a moment to release old path locks.
+      await sleep(100);
     } catch {
       console.info("[EPG] No existing cache dir to remove (or already gone)");
     }
 
     console.info("[EPG] Renaming temp dir to final cache dir");
-    await rename(tmpRoot, CACHE_ROOT);
+    await renameWithRetry(tmpRoot, CACHE_ROOT);
     console.info(`[EPG] Cache build complete at ${new Date().toISOString()}`);
 
     return manifest;
