@@ -189,7 +189,11 @@ export default function MoviesCategoryPage() {
                     type="button"
                     className="group w-full text-left"
                     onClick={() => {
-                      console.log("vod_id:", movie.stream_id);
+                      void router.push(
+                        `/movies/${movie.stream_id}?categoryId=${encodeURIComponent(
+                          categoryId ?? ""
+                        )}`
+                      );
                     }}
                   >
                     <div className="transition duration-200 group-hover:scale-105">

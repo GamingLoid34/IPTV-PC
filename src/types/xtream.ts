@@ -34,6 +34,29 @@ export type XtreamVodStream = {
   direct_source: string;
 };
 
+export type XtreamVodInfo = {
+  info: {
+    movie_image?: string;
+    backdrop_path?: string[];
+    youtube_trailer?: string;
+    genre?: string;
+    plot?: string;
+    cast?: string;
+    rating?: string;
+    director?: string;
+    releasedate?: string;
+    duration_secs?: number;
+    duration?: string;
+    country?: string;
+  };
+  movie_data: {
+    stream_id: number;
+    name: string;
+    container_extension: string;
+    category_id: string;
+  };
+};
+
 export type ApiErrorResponse = {
   error: string;
 };

@@ -15,11 +15,17 @@ export type XtreamApiFailure = {
 
 export type XtreamApiResult<T> = XtreamApiSuccess<T> | XtreamApiFailure;
 
+type XtreamApiOptions = {
+  expectedShape?: "array" | "object";
+};
+
 export async function callXtreamApi<T = unknown[]>(
   credentials: XtreamCredentials,
   action: string,
-  extraParams: Record<string, string> = {}
+  extraParams: Record<string, string> = {},
+  options: XtreamApiOptions = {}
 ): Promise<XtreamApiResult<T>> {
+  const expectedShape = options.expectedShape ?? "array";
   const base = credentials.serverUrl.trim().replace(/\/+$/, "");
   const params = new URLSearchParams({
     username: credentials.username.trim(),
@@ -63,7 +69,18 @@ export async function callXtreamApi<T = unknown[]>(
     };
   }
 
-  if (!Array.isArray(parsed)) {
+  if (expectedShape === "array" && !Array.isArray(parsed)) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Fel användarnamn eller lösenord",
+    };
+  }
+
+  if (
+    expectedShape === "object" &&
+    (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+  ) {
     return {
       ok: false,
       status: 401,
