@@ -73,6 +73,7 @@ export default async function handler(
       sportTypes,
       leagues,
       limit: Number.isFinite(limit) ? limit : undefined,
+      channelPolicy: "sweden_only_with_us_motorsport_exception",
     });
     return res.status(200).json(events);
   } catch (error) {

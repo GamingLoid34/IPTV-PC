@@ -2,6 +2,10 @@ import {
   classifyChannelSportTypeStrict,
   isSportChannel,
 } from "@/lib/epg/channelSportClassifier";
+import {
+  extractCountryCode,
+  extractCountryCodeFromEpgId,
+} from "@/lib/epg/channelMatcher";
 import { classifyProgrammeSportType, extractLeague } from "@/lib/epg/sportClassifier";
 import { getChannels, getProgrammesForChannel } from "@/lib/epg/reader";
 import type { EpgChannel, SportEvent, SportType } from "@/types/epg";
@@ -26,6 +30,7 @@ export async function getSportEvents(opts: {
   sportTypes?: SportType[];
   leagues?: string[];
   limit?: number;
+  channelPolicy?: "sweden_only_with_us_motorsport_exception";
 }): Promise<SportEvent[]> {
   console.log("[SPORT] Starting aggregation. fromMs:", opts.fromMs, "toMs:", opts.toMs);
   console.log("[SPORT] Time window:", new Date(opts.fromMs).toISOString(), "to", new Date(opts.toMs).toISOString());
@@ -34,6 +39,8 @@ export async function getSportEvents(opts: {
   const limit = opts.limit ?? 500;
   const typeFilters = opts.sportTypes ?? [];
   const leagueFilters = (opts.leagues ?? []).map((l) => l.toLowerCase());
+  const channelPolicy =
+    opts.channelPolicy ?? "sweden_only_with_us_motorsport_exception";
   const channels = await getChannels();
   // TODO: Cache sport channel detection results in memory if needed.
   const sportChannels = channels.filter((channel) => isSportChannel(channel.displayName));
@@ -44,10 +51,25 @@ export async function getSportEvents(opts: {
   let totalProgrammes = 0;
   let programmesInWindow = 0;
   let skippedTooLongCount = 0;
+  let skippedByCountryChannel = 0;
+  let skippedByCountryProgramme = 0;
   let sampleLogged = 0;
 
   for (const sportChannel of sportChannels) {
     const channelStrictType = classifyChannelSportTypeStrict(sportChannel.displayName);
+    const channelCountry =
+      extractCountryCode(sportChannel.displayName) ??
+      extractCountryCodeFromEpgId(sportChannel.id);
+
+    if (
+      channelPolicy === "sweden_only_with_us_motorsport_exception" &&
+      channelCountry &&
+      channelCountry !== "se" &&
+      channelCountry !== "us"
+    ) {
+      skippedByCountryChannel += 1;
+      continue;
+    }
 
     const programmes = await getProgrammesForChannel(sportChannel.id);
     channelsRead += 1;
@@ -106,6 +128,20 @@ export async function getSportEvents(opts: {
       });
       const resolvedType = programmeType ?? channelStrictType;
       if (!resolvedType) continue;
+
+      if (
+        channelPolicy === "sweden_only_with_us_motorsport_exception" &&
+        channelCountry === "us"
+      ) {
+        const text = `${programme.title} ${programme.description ?? ""}`.toLowerCase();
+        const allowUs =
+          resolvedType === "motorsport" || /\bindy\s*car\b|\bindycar\b/.test(text);
+        if (!allowUs) {
+          skippedByCountryProgramme += 1;
+          continue;
+        }
+      }
+
       if (typeFilters.length > 0 && !typeFilters.includes(resolvedType)) continue;
 
       const league = extractLeague({
@@ -144,6 +180,14 @@ export async function getSportEvents(opts: {
   }
 
   console.log("[SPORT] Read programmes from", channelsRead, "channels");
+  console.log(
+    "[SPORT] Skipped channels by country policy:",
+    skippedByCountryChannel
+  );
+  console.log(
+    "[SPORT] Skipped programmes by country policy:",
+    skippedByCountryProgramme
+  );
   console.log("[SPORT] Total programmes before time filter:", totalProgrammes);
   console.log("[SPORT] Programmes within time window:", programmesInWindow);
   console.log(

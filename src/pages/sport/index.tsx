@@ -437,6 +437,9 @@ export default function SportPage() {
     <main className="px-4 py-8">
       <div className="mx-auto w-full max-w-5xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <h1 className="text-2xl font-semibold text-white">Sport</h1>
+        <p className="text-xs text-zinc-400">
+          Visar svenska sportkanaler som standard, plus amerikanska kanaler för IndyCar/motorsport.
+        </p>
 
         <div className="flex flex-wrap gap-2">
           {SPORT_FILTERS.map((filter) => (
