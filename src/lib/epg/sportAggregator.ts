@@ -43,6 +43,7 @@ export async function getSportEvents(opts: {
   let channelsRead = 0;
   let totalProgrammes = 0;
   let programmesInWindow = 0;
+  let skippedTooLongCount = 0;
   let sampleLogged = 0;
 
   for (const sportChannel of sportChannels) {
@@ -92,6 +93,11 @@ export async function getSportEvents(opts: {
       const overlaps = startMs < opts.toMs && stopMs > opts.fromMs;
       if (!overlaps) continue;
       programmesInWindow += 1;
+      const durationMs = stopMs - startMs;
+      if (durationMs > 8 * 60 * 60 * 1000) {
+        skippedTooLongCount += 1;
+        continue;
+      }
 
       const programmeType = classifyProgrammeSportType({
         title: programme.title,
@@ -140,6 +146,11 @@ export async function getSportEvents(opts: {
   console.log("[SPORT] Read programmes from", channelsRead, "channels");
   console.log("[SPORT] Total programmes before time filter:", totalProgrammes);
   console.log("[SPORT] Programmes within time window:", programmesInWindow);
+  console.log(
+    "[SPORT] Skipped",
+    skippedTooLongCount,
+    "programmes as too long (>8h block events)"
+  );
   const deduplicatedEvents = grouped.size;
   console.log("[SPORT] After dedup:", deduplicatedEvents);
 

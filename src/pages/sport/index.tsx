@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { formatTimeRange } from "@/lib/epg/formatTime";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type { SportEvent, SportType } from "@/types/epg";
 import type { ApiErrorResponse } from "@/types/xtream";
@@ -63,17 +62,40 @@ function sportLabel(type: SportFilter): string {
 }
 
 function eventTimeLabel(event: SportEvent, selectedDayOffset: number): string {
+  const formattedTime = formatEventTime(event.startIso, event.stopIso);
+
   if (selectedDayOffset === 0) {
-    return formatTimeRange(event.startIso, event.stopIso);
+    return formattedTime;
   }
-  const start = new Date(event.startIso).toLocaleTimeString("sv-SE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
   const weekday = new Intl.DateTimeFormat("sv-SE", { weekday: "short" }).format(
     new Date(event.startIso)
   );
-  return `${weekday} ${start}`;
+  return `${weekday} ${formattedTime}`;
+}
+
+function formatEventTime(startIso: string, stopIso: string): string {
+  const startDate = new Date(startIso);
+  const stopDate = new Date(stopIso);
+  const durationMs = stopDate.getTime() - startDate.getTime();
+  const startTime = startDate.toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const stopTime = stopDate.toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (durationMs > 3 * 60 * 60 * 1000) {
+    const totalMinutes = Math.floor(durationMs / (60 * 1000));
+    const durationHours = Math.floor(totalMinutes / 60);
+    const durationMinutes = totalMinutes % 60;
+    return `${startTime} (${durationHours}t${
+      durationMinutes > 0 ? ` ${durationMinutes}m` : ""
+    })`;
+  }
+
+  return `${startTime}–${stopTime}`;
 }
 
 export default function SportPage() {
