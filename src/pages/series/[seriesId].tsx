@@ -85,7 +85,7 @@ function EpisodeThumbnail({
 
 export default function SeriesDetailPage() {
   const router = useRouter();
-  const { seriesId, categoryId } = router.query;
+  const { seriesId, categoryId, from } = router.query;
 
   const parsedSeriesId = useMemo(() => {
     if (typeof seriesId !== "string") return null;
@@ -97,6 +97,7 @@ export default function SeriesDetailPage() {
     () => (typeof categoryId === "string" && categoryId.trim() !== "" ? categoryId : null),
     [categoryId]
   );
+  const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
 
   const [state, setState] = useState<SeriesDetailState>({
     isLoading: true,
@@ -107,9 +108,12 @@ export default function SeriesDetailPage() {
   const [hasBackdropError, setHasBackdropError] = useState(false);
   const [hasPosterError, setHasPosterError] = useState(false);
 
-  const backHref = categoryIdValue
-    ? `/series?categoryId=${encodeURIComponent(categoryIdValue)}`
-    : "/series";
+  const backHref =
+    fromValue === "favorites"
+      ? "/favorites"
+      : categoryIdValue
+        ? `/series?categoryId=${encodeURIComponent(categoryIdValue)}`
+        : "/series";
 
   useEffect(() => {
     if (!router.isReady) return;

@@ -7,7 +7,8 @@ import type {
 } from "@/types/xtream";
 
 type VodInfoRequestBody = XtreamCredentials & {
-  vodId: number;
+  vodId?: number;
+  vod_id?: number;
 };
 
 type ResponseBody = XtreamVodInfo | ApiErrorResponse;
@@ -22,8 +23,8 @@ function hasVodInfoRequestBody(body: unknown): body is VodInfoRequestBody {
     o.username.trim() !== "" &&
     typeof o.password === "string" &&
     o.password !== "" &&
-    typeof o.vodId === "number" &&
-    Number.isFinite(o.vodId)
+    ((typeof o.vodId === "number" && Number.isFinite(o.vodId)) ||
+      (typeof o.vod_id === "number" && Number.isFinite(o.vod_id)))
   );
 }
 
@@ -44,6 +45,13 @@ export default async function handler(
   }
 
   const body = req.body as VodInfoRequestBody;
+  const vodId = body.vodId ?? body.vod_id;
+  if (typeof vodId !== "number" || !Number.isFinite(vodId)) {
+    return res.status(400).json({
+      error:
+        "Alla fält krävs: serverUrl, username, password och vodId/vod_id (giltigt nummer).",
+    });
+  }
   const credentials: XtreamCredentials = {
     serverUrl: body.serverUrl.trim(),
     username: body.username.trim(),
@@ -53,7 +61,7 @@ export default async function handler(
   const result = await callXtreamApi<XtreamVodInfo>(
     credentials,
     "get_vod_info",
-    { vod_id: String(body.vodId) },
+    { vod_id: String(vodId) },
     { expectedShape: "object" }
   );
 

@@ -30,7 +30,7 @@ function extractReleaseYear(releasedate?: string): string | null {
 
 export default function MovieDetailPage() {
   const router = useRouter();
-  const { vodId, categoryId } = router.query;
+  const { vodId, categoryId, from } = router.query;
 
   const parsedVodId = useMemo(() => {
     if (typeof vodId !== "string") return null;
@@ -42,6 +42,7 @@ export default function MovieDetailPage() {
     () => (typeof categoryId === "string" && categoryId.trim() !== "" ? categoryId : null),
     [categoryId]
   );
+  const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
 
   const [state, setState] = useState<MovieDetailState>({
     isLoading: true,
@@ -52,9 +53,12 @@ export default function MovieDetailPage() {
   const [hasBackdropError, setHasBackdropError] = useState(false);
   const [hasPosterError, setHasPosterError] = useState(false);
 
-  const backHref = categoryIdValue
-    ? `/movies?categoryId=${encodeURIComponent(categoryIdValue)}`
-    : "/movies";
+  const backHref =
+    fromValue === "favorites"
+      ? "/favorites"
+      : categoryIdValue
+        ? `/movies?categoryId=${encodeURIComponent(categoryIdValue)}`
+        : "/movies";
 
   useEffect(() => {
     if (!router.isReady) return;

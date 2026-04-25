@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type HlsType from "hls.js";
 import { formatStartTime, formatTimeRange } from "@/lib/epg/formatTime";
 import { loadPlaylist } from "@/lib/playlistStorage";
-import type { NowAndNextResult } from "@/types/epg";
+import type { EpgProgramme, NowAndNextResult } from "@/types/epg";
 
 type PlayerStatus = "idle" | "loading" | "ready" | "playing" | "error";
 
@@ -39,8 +39,9 @@ function safeStringify(value: unknown): string {
 
 export default function WatchPage() {
   const router = useRouter();
-  const { streamId, categoryId, streamName } = router.query;
+  const { streamId, categoryId, streamName, from } = router.query;
   const hlsRef = useRef<HlsType | null>(null);
+  const triedTsFallbackRef = useRef(false);
 
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
@@ -48,6 +49,8 @@ export default function WatchPage() {
   const [playerError, setPlayerError] = useState<PlayerError | null>(null);
   const [nonFatalEventsCount, setNonFatalEventsCount] = useState(0);
   const [nowAndNext, setNowAndNext] = useState<NowAndNextResult | null>(null);
+  const [channelGuide, setChannelGuide] = useState<EpgProgramme[]>([]);
+  const [isLoadingGuide, setIsLoadingGuide] = useState(false);
 
   const streamIdValue = useMemo(
     () => (typeof streamId === "string" ? streamId : null),
@@ -61,9 +64,15 @@ export default function WatchPage() {
     () => (typeof streamName === "string" ? streamName : null),
     [streamName]
   );
-  const backHref = categoryIdValue
-    ? `/live?categoryId=${encodeURIComponent(categoryIdValue)}`
-    : "/live";
+  const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
+  const backHref =
+    fromValue === "sport"
+      ? "/sport"
+      : fromValue === "favorites"
+        ? "/favorites"
+      : categoryIdValue
+        ? `/live?categoryId=${encodeURIComponent(categoryIdValue)}`
+        : "/live";
   const maskedUrl = streamUrl ? maskStreamUrl(streamUrl) : "Inte skapad ännu";
 
   useEffect(() => {
@@ -88,6 +97,7 @@ export default function WatchPage() {
       streamIdValue
     )}.m3u8`;
     setStreamUrl(url);
+    triedTsFallbackRef.current = false;
     setPlayerStatus("loading");
     setPlayerError(null);
     setNonFatalEventsCount(0);
@@ -131,6 +141,52 @@ export default function WatchPage() {
     };
   }, [streamIdValue, streamNameValue]);
 
+  useEffect(() => {
+    if (!streamIdValue || !streamNameValue) {
+      setChannelGuide([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadGuide = async () => {
+      setIsLoadingGuide(true);
+      try {
+        const numericStreamId = Number(streamIdValue);
+        if (!Number.isFinite(numericStreamId)) return;
+        const nowMs = Date.now();
+        const fromIso = new Date(nowMs - 2 * 60 * 60 * 1000).toISOString();
+        const toIso = new Date(nowMs + 10 * 60 * 60 * 1000).toISOString();
+
+        const response = await fetch("/api/epg/multi-channel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            xtreamChannels: [{ stream_id: numericStreamId, name: streamNameValue }],
+            fromIso,
+            toIso,
+          }),
+        });
+        const data: unknown = await response.json();
+        if (!response.ok || !data || typeof data !== "object") return;
+        const results = (data as { results?: unknown }).results;
+        if (!Array.isArray(results) || results.length === 0) return;
+        const programmes = (results[0] as { programmes?: EpgProgramme[] }).programmes;
+        if (!cancelled) {
+          setChannelGuide(Array.isArray(programmes) ? programmes : []);
+        }
+      } catch {
+        if (!cancelled) setChannelGuide([]);
+      } finally {
+        if (!cancelled) setIsLoadingGuide(false);
+      }
+    };
+
+    void loadGuide();
+    return () => {
+      cancelled = true;
+    };
+  }, [streamIdValue, streamNameValue]);
+
   const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
     setVideoElement(el);
   }, []);
@@ -146,6 +202,53 @@ export default function WatchPage() {
     const setup = async () => {
       setPlayerStatus("loading");
       setPlayerError(null);
+
+      const attemptTsFallback = () => {
+        if (!isMounted || !videoElement) return;
+        if (triedTsFallbackRef.current) return;
+        triedTsFallbackRef.current = true;
+
+        const tsUrl = streamUrl.replace(/\.m3u8(\?.*)?$/i, ".ts$1");
+        console.warn("[HLS] Trying .ts fallback:", maskStreamUrl(tsUrl));
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+
+        videoElement.src = tsUrl;
+        setPlayerStatus("loading");
+
+        const onPlaying = () => {
+          if (isMounted) {
+            setPlayerStatus("playing");
+            setPlayerError(null);
+          }
+        };
+        const onCanPlay = () => {
+          if (isMounted) {
+            setPlayerStatus("ready");
+          }
+        };
+        const onError = () => {
+          if (isMounted) {
+            setPlayerStatus("error");
+            setPlayerError({
+              message:
+                "Kunde inte spela upp streamen i webbläsaren (även fallback misslyckades). Testa annan kanal eller extern spelare/VPN.",
+            });
+          }
+          videoElement.removeEventListener("playing", onPlaying);
+          videoElement.removeEventListener("canplay", onCanPlay);
+          videoElement.removeEventListener("error", onError);
+        };
+
+        videoElement.addEventListener("playing", onPlaying, { once: true });
+        videoElement.addEventListener("canplay", onCanPlay, { once: true });
+        videoElement.addEventListener("error", onError, { once: true });
+        void videoElement.play().catch(() => {
+          // Autoplay may be blocked; controls remain available.
+        });
+      };
 
       try {
         const HlsModule = await import("hls.js");
@@ -188,8 +291,8 @@ export default function WatchPage() {
                 data.response?.code === 458 ||
                 /cors/i.test(String(data.details ?? "")))
             ) {
-              message =
-                "Browsern kan inte hämta streamen direkt - vi kommer behöva bygga en proxy. Se browser-console för detaljer.";
+              message = "Streamen blockerades i webbläsaren. Försöker fallback…";
+              attemptTsFallback();
             } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               message = "Mediafel i HLS-strömmen.";
             } else if (data.type === Hls.ErrorTypes.OTHER_ERROR) {
@@ -197,8 +300,10 @@ export default function WatchPage() {
             }
 
             if (isMounted) {
-              setPlayerStatus("error");
-              setPlayerError({ message, details: data });
+              if (!triedTsFallbackRef.current) {
+                setPlayerStatus("error");
+                setPlayerError({ message, details: data });
+              }
             }
           });
 
@@ -269,8 +374,8 @@ export default function WatchPage() {
   }, [streamUrl, videoElement]);
 
   return (
-    <div className="px-4 py-8">
-      <div className="mx-auto w-full max-w-4xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
+    <div className="px-4 py-6">
+      <div className="mx-auto w-full max-w-6xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <Link
             href={backHref}
@@ -289,7 +394,7 @@ export default function WatchPage() {
             controls
             autoPlay
             playsInline
-            className="aspect-video w-full"
+            className="aspect-video w-full max-h-[62vh]"
           />
         </div>
 
@@ -325,6 +430,41 @@ export default function WatchPage() {
             )}
           </section>
         )}
+
+        <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/30 p-3 text-sm">
+          <h2 className="text-sm font-semibold text-zinc-200">Kanalens TV-guide</h2>
+          {isLoadingGuide && <p className="text-zinc-400">Laddar TV-guide...</p>}
+          {!isLoadingGuide && channelGuide.length === 0 && (
+            <p className="text-zinc-400">Ingen TV-guide tillgänglig för kanalen.</p>
+          )}
+          {!isLoadingGuide && channelGuide.length > 0 && (
+            <ul className="space-y-2">
+              {channelGuide.slice(0, 12).map((programme) => {
+                const isCurrent =
+                  Date.parse(programme.start) <= Date.now() &&
+                  Date.now() < Date.parse(programme.stop);
+                return (
+                  <li
+                    key={`${programme.channelId}-${programme.start}`}
+                    className={`rounded border px-3 py-2 ${
+                      isCurrent
+                        ? "border-blue-400/70 bg-blue-500/10"
+                        : "border-zinc-700 bg-zinc-900/40"
+                    }`}
+                  >
+                    <p className="text-xs text-zinc-400">
+                      {formatTimeRange(programme.start, programme.stop)}
+                    </p>
+                    <p className="font-medium text-zinc-100">{programme.title}</p>
+                    {programme.description && (
+                      <p className="line-clamp-2 text-xs text-zinc-400">{programme.description}</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/30 p-3 text-sm">
           <h2 className="text-sm font-semibold text-zinc-200">Debug info</h2>

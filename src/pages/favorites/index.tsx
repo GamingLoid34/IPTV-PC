@@ -12,20 +12,20 @@ import type {
   XtreamCategory,
   XtreamCredentials,
   XtreamLiveStream,
-  XtreamSeries,
-  XtreamSeriesCategory,
-  XtreamVodStream,
+  XtreamSeriesInfo,
+  XtreamVodInfo,
 } from "@/types/xtream";
 
 type TabType = "live" | "movies" | "series";
 type LiveMap = Record<number, XtreamLiveStream>;
-type MovieMap = Record<number, XtreamVodStream>;
-type SeriesMap = Record<number, XtreamSeries>;
+type MovieInfoMap = Record<number, XtreamVodInfo>;
+type SeriesInfoMap = Record<number, XtreamSeriesInfo>;
 
 const LIVE_CACHE_KEY = "iptv-pc:favorites:live-catalog:v1";
-const MOVIES_CACHE_KEY = "iptv-pc:favorites:movies-catalog:v1";
-const SERIES_CACHE_KEY = "iptv-pc:favorites:series-catalog:v1";
+const MOVIES_INFO_CACHE_KEY = "iptv-pc:movies-info-cache";
+const SERIES_INFO_CACHE_KEY = "iptv-pc:series-info-cache";
 const CATALOG_TTL_MS = 5 * 60 * 1000;
+const INFO_TTL_MS = 30 * 60 * 1000;
 
 function saveSessionCache<T>(key: string, data: T) {
   if (typeof window === "undefined") return;
@@ -89,48 +89,123 @@ async function loadAllLiveStreams(credentials: XtreamCredentials): Promise<LiveM
   return byId;
 }
 
-async function loadAllMovies(credentials: XtreamCredentials): Promise<MovieMap> {
-  const cached = loadSessionCache<MovieMap>(MOVIES_CACHE_KEY, CATALOG_TTL_MS);
-  if (cached) return cached;
+type ItemInfoCacheEntry<T> = {
+  savedAt: number;
+  data: T;
+};
 
-  const categories = await postJson<XtreamCategory[]>("/api/xtream/vod-categories", credentials);
-  if (!categories) return {};
+type ItemInfoCachePayload<T> = Record<string, ItemInfoCacheEntry<T>>;
 
-  const byId: MovieMap = {};
-  for (const category of categories) {
-    const items = await postJson<XtreamVodStream[]>("/api/xtream/vod-streams", {
-      ...credentials,
-      categoryId: category.category_id,
-    });
-    if (!items) continue;
-    for (const item of items) {
-      byId[item.stream_id] = item;
+function loadItemInfoCache<T>(key: string, ttlMs: number): ItemInfoCachePayload<T> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const output: ItemInfoCachePayload<T> = {};
+    const now = Date.now();
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== "object") continue;
+      const entry = value as { savedAt?: unknown; data?: unknown };
+      if (typeof entry.savedAt !== "number" || now - entry.savedAt > ttlMs) continue;
+      output[id] = { savedAt: entry.savedAt, data: entry.data as T };
     }
+    return output;
+  } catch {
+    return {};
   }
-  saveSessionCache(MOVIES_CACHE_KEY, byId);
-  return byId;
 }
 
-async function loadAllSeries(credentials: XtreamCredentials): Promise<SeriesMap> {
-  const cached = loadSessionCache<SeriesMap>(SERIES_CACHE_KEY, CATALOG_TTL_MS);
-  if (cached) return cached;
+function saveItemInfoCache<T>(key: string, cache: ItemInfoCachePayload<T>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(cache));
+  } catch {
+    // best effort
+  }
+}
 
-  const categories = await postJson<XtreamSeriesCategory[]>("/api/xtream/series-categories", credentials);
-  if (!categories) return {};
+async function loadMoviesInfo(
+  credentials: XtreamCredentials,
+  favorites: FavoriteEntry[]
+): Promise<MovieInfoMap> {
+  const cache = loadItemInfoCache<XtreamVodInfo>(MOVIES_INFO_CACHE_KEY, INFO_TTL_MS);
+  const nextMap: MovieInfoMap = {};
+  const missingIds: number[] = [];
 
-  const byId: SeriesMap = {};
-  for (const category of categories) {
-    const items = await postJson<XtreamSeries[]>("/api/xtream/series", {
-      ...credentials,
-      categoryId: category.category_id,
-    });
-    if (!items) continue;
-    for (const item of items) {
-      byId[item.series_id] = item;
+  for (const favorite of favorites) {
+    const cached = cache[String(favorite.id)];
+    if (cached?.data) {
+      nextMap[favorite.id] = cached.data;
+    } else {
+      missingIds.push(favorite.id);
     }
   }
-  saveSessionCache(SERIES_CACHE_KEY, byId);
-  return byId;
+
+  if (missingIds.length === 0) return nextMap;
+
+  const responses = await Promise.all(
+    missingIds.map((id) =>
+      postJson<XtreamVodInfo>("/api/xtream/vod-info", {
+        ...credentials,
+        vod_id: id,
+      }).then((data) => ({ id, data }))
+    )
+  );
+
+  for (const response of responses) {
+    if (!response.data) continue;
+    nextMap[response.id] = response.data;
+    cache[String(response.id)] = {
+      savedAt: Date.now(),
+      data: response.data,
+    };
+  }
+  saveItemInfoCache(MOVIES_INFO_CACHE_KEY, cache);
+
+  return nextMap;
+}
+
+async function loadSeriesInfo(
+  credentials: XtreamCredentials,
+  favorites: FavoriteEntry[]
+): Promise<SeriesInfoMap> {
+  const cache = loadItemInfoCache<XtreamSeriesInfo>(SERIES_INFO_CACHE_KEY, INFO_TTL_MS);
+  const nextMap: SeriesInfoMap = {};
+  const missingIds: number[] = [];
+
+  for (const favorite of favorites) {
+    const cached = cache[String(favorite.id)];
+    if (cached?.data) {
+      nextMap[favorite.id] = cached.data;
+    } else {
+      missingIds.push(favorite.id);
+    }
+  }
+
+  if (missingIds.length === 0) return nextMap;
+
+  const responses = await Promise.all(
+    missingIds.map((id) =>
+      postJson<XtreamSeriesInfo>("/api/xtream/series-info", {
+        ...credentials,
+        series_id: id,
+      }).then((data) => ({ id, data }))
+    )
+  );
+
+  for (const response of responses) {
+    if (!response.data) continue;
+    nextMap[response.id] = response.data;
+    cache[String(response.id)] = {
+      savedAt: Date.now(),
+      data: response.data,
+    };
+  }
+  saveItemInfoCache(SERIES_INFO_CACHE_KEY, cache);
+
+  return nextMap;
 }
 
 function EmptyState({ label }: { label: string }) {
@@ -148,8 +223,8 @@ export default function FavoritesPage() {
   const seriesFavs = useFavorites("series");
   const [activeTab, setActiveTab] = useState<TabType>("live");
   const [liveMap, setLiveMap] = useState<LiveMap>({});
-  const [movieMap, setMovieMap] = useState<MovieMap>({});
-  const [seriesMap, setSeriesMap] = useState<SeriesMap>({});
+  const [movieMap, setMovieMap] = useState<MovieInfoMap>({});
+  const [seriesMap, setSeriesMap] = useState<SeriesInfoMap>({});
   const [nowAndNext, setNowAndNext] = useState<Record<number, NowAndNextResult>>({});
   const [isLoadingLive, setIsLoadingLive] = useState(false);
   const [isLoadingMovies, setIsLoadingMovies] = useState(false);
@@ -196,12 +271,12 @@ export default function FavoritesPage() {
     if (activeTab !== "movies" || !credentials) return;
     let cancelled = false;
     setIsLoadingMovies(true);
-    void loadAllMovies(credentials)
+    void loadMoviesInfo(credentials, movieFavs.favorites)
       .then((map) => {
         if (!cancelled) setMovieMap(map);
       })
       .catch(() => {
-        if (!cancelled) setError("Kunde inte hämta filmkatalog.");
+        if (!cancelled) setError("Kunde inte hämta filminformation.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingMovies(false);
@@ -209,18 +284,18 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials]);
+  }, [activeTab, credentials, movieFavs.favorites]);
 
   useEffect(() => {
     if (activeTab !== "series" || !credentials) return;
     let cancelled = false;
     setIsLoadingSeries(true);
-    void loadAllSeries(credentials)
+    void loadSeriesInfo(credentials, seriesFavs.favorites)
       .then((map) => {
         if (!cancelled) setSeriesMap(map);
       })
       .catch(() => {
-        if (!cancelled) setError("Kunde inte hämta seriekatalog.");
+        if (!cancelled) setError("Kunde inte hämta serieinformation.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingSeries(false);
@@ -228,7 +303,7 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials]);
+  }, [activeTab, credentials, seriesFavs.favorites]);
 
   useEffect(() => {
     if (!credentials || liveFavs.favorites.length === 0 || activeTab !== "live") {
@@ -333,23 +408,27 @@ export default function FavoritesPage() {
     return (
       <div className="rounded-lg border border-zinc-700 bg-zinc-900/20">
         {movieRows.map(({ fav, data }) => {
-          const title = data?.name ?? fav.name;
+          const info = data?.info;
+          const movieData = data?.movie_data;
+          const title = movieData?.name ?? fav.name;
+          const year = info?.releasedate?.match(/^(\d{4})/)?.[1] ?? null;
+          const meta = [info?.genre?.trim() ? info.genre : null, year].filter(Boolean).join(" · ");
           return (
             <button
               key={fav.id}
               type="button"
-              onClick={() => void router.push(`/movies/${fav.id}`)}
+              onClick={() => void router.push(`/movies/${fav.id}?from=favorites`)}
               className="flex w-full items-center gap-3 border-b border-zinc-800 px-3 py-2 text-left hover:bg-zinc-800/40"
             >
               <div className="h-12 w-8 shrink-0 overflow-hidden rounded bg-zinc-700">
-                {data?.stream_icon ? (
-                  <img src={data.stream_icon} alt={title} className="h-full w-full object-cover" />
+                {info?.movie_image ? (
+                  <img src={info.movie_image} alt={title} className="h-full w-full object-cover" />
                 ) : null}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-zinc-100">{title}</p>
                 <p className="truncate text-xs text-zinc-400">
-                  {data?.category_id ? `Kategori: ${data.category_id}` : isLoadingMovies ? "Laddar..." : "Metadata saknas"}
+                  {meta || (isLoadingMovies ? "Laddar..." : "Metadata saknas")}
                 </p>
               </div>
               <FavoriteToggle type="movies" id={fav.id} name={title} />
@@ -365,21 +444,23 @@ export default function FavoritesPage() {
     return (
       <div className="rounded-lg border border-zinc-700 bg-zinc-900/20">
         {seriesRows.map(({ fav, data }) => {
-          const title = data?.name ?? fav.name;
+          const info = data?.info;
+          const title = info?.name ?? fav.name;
+          const year = info?.releaseDate?.match(/^(\d{4})/)?.[1] ?? null;
           return (
             <button
               key={fav.id}
               type="button"
-              onClick={() => void router.push(`/series/${fav.id}`)}
+              onClick={() => void router.push(`/series/${fav.id}?from=favorites`)}
               className="flex w-full items-center gap-3 border-b border-zinc-800 px-3 py-2 text-left hover:bg-zinc-800/40"
             >
               <div className="h-12 w-8 shrink-0 overflow-hidden rounded bg-zinc-700">
-                {data?.cover ? <img src={data.cover} alt={title} className="h-full w-full object-cover" /> : null}
+                {info?.cover ? <img src={info.cover} alt={title} className="h-full w-full object-cover" /> : null}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-zinc-100">{title}</p>
                 <p className="truncate text-xs text-zinc-400">
-                  {data?.genre?.trim() ? data.genre : isLoadingSeries ? "Laddar..." : "Metadata saknas"}
+                  {year ?? (isLoadingSeries ? "Laddar..." : "Metadata saknas")}
                 </p>
               </div>
               <FavoriteToggle type="series" id={fav.id} name={title} />
