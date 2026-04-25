@@ -71,9 +71,11 @@ export default function SeriesIndexPage() {
   });
 
   const selectCategory = (id: string) => {
-    void router.push(`/series?categoryId=${encodeURIComponent(id)}`, undefined, {
-      shallow: true,
-    });
+    void router.push(
+      { pathname: router.pathname, query: { ...router.query, categoryId: id } },
+      undefined,
+      { shallow: true, scroll: false }
+    );
   };
 
   useEffect(() => {

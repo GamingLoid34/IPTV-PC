@@ -30,7 +30,7 @@ function extractReleaseYear(releasedate?: string): string | null {
 
 export default function MovieDetailPage() {
   const router = useRouter();
-  const { vodId, categoryId, from } = router.query;
+  const { vodId, from } = router.query;
 
   const parsedVodId = useMemo(() => {
     if (typeof vodId !== "string") return null;
@@ -38,10 +38,6 @@ export default function MovieDetailPage() {
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
     return parsed;
   }, [vodId]);
-  const categoryIdValue = useMemo(
-    () => (typeof categoryId === "string" && categoryId.trim() !== "" ? categoryId : null),
-    [categoryId]
-  );
   const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
 
   const [state, setState] = useState<MovieDetailState>({
@@ -56,9 +52,7 @@ export default function MovieDetailPage() {
   const backHref =
     fromValue === "favorites"
       ? "/favorites"
-      : categoryIdValue
-        ? `/movies?categoryId=${encodeURIComponent(categoryIdValue)}`
-        : "/movies";
+      : "/movies";
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -273,7 +267,11 @@ export default function MovieDetailPage() {
                   type="button"
                   onClick={() => {
                     if (parsedVodId == null) return;
-                    void router.push(`/movies/${parsedVodId}/watch`);
+                    const watchHref =
+                      fromValue === "favorites"
+                        ? `/movies/${parsedVodId}/watch?from=favorites`
+                        : `/movies/${parsedVodId}/watch`;
+                    void router.push(watchHref);
                   }}
                   className="inline-flex items-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
                 >

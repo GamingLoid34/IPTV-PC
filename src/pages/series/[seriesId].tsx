@@ -85,7 +85,7 @@ function EpisodeThumbnail({
 
 export default function SeriesDetailPage() {
   const router = useRouter();
-  const { seriesId, categoryId, from } = router.query;
+  const { seriesId, from } = router.query;
 
   const parsedSeriesId = useMemo(() => {
     if (typeof seriesId !== "string") return null;
@@ -93,10 +93,6 @@ export default function SeriesDetailPage() {
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
     return parsed;
   }, [seriesId]);
-  const categoryIdValue = useMemo(
-    () => (typeof categoryId === "string" && categoryId.trim() !== "" ? categoryId : null),
-    [categoryId]
-  );
   const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
 
   const [state, setState] = useState<SeriesDetailState>({
@@ -111,9 +107,7 @@ export default function SeriesDetailPage() {
   const backHref =
     fromValue === "favorites"
       ? "/favorites"
-      : categoryIdValue
-        ? `/series?categoryId=${encodeURIComponent(categoryIdValue)}`
-        : "/series";
+      : "/series";
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -418,10 +412,16 @@ export default function SeriesDetailPage() {
                             type="button"
                             onClick={() => {
                               if (parsedSeriesId == null) return;
+                              const watchHref =
+                                fromValue === "favorites"
+                                  ? `/series/${parsedSeriesId}/watch/${encodeURIComponent(
+                                      episode.id
+                                    )}?from=favorites`
+                                  : `/series/${parsedSeriesId}/watch/${encodeURIComponent(
+                                      episode.id
+                                    )}`;
                               void router.push(
-                                `/series/${parsedSeriesId}/watch/${encodeURIComponent(
-                                  episode.id
-                                )}`
+                                watchHref
                               );
                             }}
                             className="flex w-full items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 p-3 text-left transition hover:border-zinc-500 hover:bg-zinc-700/50"

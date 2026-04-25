@@ -59,7 +59,7 @@ function mimeFromExtension(ext: string): string {
 
 export default function MovieWatchPage() {
   const router = useRouter();
-  const { vodId } = router.query;
+  const { vodId, from } = router.query;
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const [videoError, setVideoError] = useState<VideoErrorState>(null);
   const [canPlayTypeResult, setCanPlayTypeResult] = useState<string>("");
@@ -77,6 +77,13 @@ export default function MovieWatchPage() {
     if (!Number.isInteger(parsed) || parsed <= 0) return null;
     return parsed;
   }, [vodId]);
+  const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
+  const backHref =
+    parsedVodId != null
+      ? fromValue === "favorites"
+        ? `/movies/${parsedVodId}?from=favorites`
+        : `/movies/${parsedVodId}`
+      : "/movies";
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -212,7 +219,7 @@ export default function MovieWatchPage() {
       <div className="mx-auto w-full max-w-6xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <Link
-            href={parsedVodId != null ? `/movies/${parsedVodId}` : "/movies"}
+            href={backHref}
             className="inline-flex items-center rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
           >
             Tillbaka till {state.movieName || "filmen"}

@@ -96,7 +96,7 @@ function findEpisodeById(
 
 export default function SeriesEpisodeWatchPage() {
   const router = useRouter();
-  const { seriesId, episodeId } = router.query;
+  const { seriesId, episodeId, from } = router.query;
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
   const [videoError, setVideoError] = useState<VideoErrorState>(null);
   const [canPlayTypeResult, setCanPlayTypeResult] = useState<string>("");
@@ -118,6 +118,13 @@ export default function SeriesEpisodeWatchPage() {
     () => (typeof episodeId === "string" && episodeId.trim() !== "" ? episodeId : null),
     [episodeId]
   );
+  const fromValue = useMemo(() => (typeof from === "string" ? from : null), [from]);
+  const backHref =
+    parsedSeriesId != null
+      ? fromValue === "favorites"
+        ? `/series/${parsedSeriesId}?from=favorites`
+        : `/series/${parsedSeriesId}`
+      : "/series";
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -267,7 +274,7 @@ export default function SeriesEpisodeWatchPage() {
       <div className="mx-auto w-full max-w-6xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <Link
-            href={parsedSeriesId != null ? `/series/${parsedSeriesId}` : "/series"}
+            href={backHref}
             className="inline-flex items-center rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
           >
             Tillbaka till serie
@@ -287,7 +294,7 @@ export default function SeriesEpisodeWatchPage() {
             <p>{state.error}</p>
             {parsedSeriesId != null && (
               <Link
-                href={`/series/${parsedSeriesId}`}
+                href={backHref}
                 className="inline-flex items-center rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
               >
                 Tillbaka

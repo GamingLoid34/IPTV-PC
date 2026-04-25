@@ -40,9 +40,11 @@ export default function LiveIndexPage() {
   });
 
   const selectCategory = (id: string) => {
-    void router.push(`/live?categoryId=${encodeURIComponent(id)}`, undefined, {
-      shallow: true,
-    });
+    void router.push(
+      { pathname: router.pathname, query: { ...router.query, categoryId: id } },
+      undefined,
+      { shallow: true, scroll: false }
+    );
   };
 
   useEffect(() => {

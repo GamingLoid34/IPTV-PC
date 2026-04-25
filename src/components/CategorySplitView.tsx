@@ -29,6 +29,7 @@ export function CategorySplitView({
   children,
 }: CategorySplitViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLElement | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [panelWidthPercent, setPanelWidthPercent] = useState(DEFAULT_WIDTH_PERCENT);
   const [isDragging, setIsDragging] = useState(false);
@@ -79,6 +80,12 @@ export function CategorySplitView({
     if (!normalizedQuery) return categories;
     return categories.filter((category) => category.name.toLowerCase().includes(normalizedQuery));
   }, [categories, normalizedQuery]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    console.log("[SPLITVIEW] categoryId changed to:", selectedCategoryId, "scroll Y:", window.scrollY);
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [selectedCategoryId]);
 
   return (
     <div
@@ -144,7 +151,7 @@ export function CategorySplitView({
         <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-600 group-hover:bg-zinc-400" />
       </div>
 
-      <section className="flex-1 overflow-y-auto p-4">
+      <section ref={contentRef} className="flex-1 overflow-y-auto p-4">
         {selectedCategoryId ? (
           children
         ) : (
