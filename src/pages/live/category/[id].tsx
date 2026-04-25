@@ -40,7 +40,7 @@ function StreamIcon({
   );
 }
 
-export default function CategoryPage() {
+export default function LiveCategoryPage() {
   const router = useRouter();
   const { id } = router.query;
 
@@ -147,11 +147,11 @@ export default function CategoryPage() {
   }, [router, id, categoryId]);
 
   return (
-    <div className="min-h-screen bg-gray-900 px-4 py-8 text-zinc-100">
+    <div className="px-4 py-8">
       <div className="mx-auto w-full max-w-3xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <Link
-            href="/"
+            href="/live"
             className="inline-flex items-center rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
           >
             Tillbaka till kategorier
@@ -169,7 +169,7 @@ export default function CategoryPage() {
             <button
               type="button"
               onClick={() => {
-                void router.replace("/");
+                void router.replace("/live");
               }}
               className="rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
             >
@@ -186,7 +186,7 @@ export default function CategoryPage() {
                   type="button"
                   onClick={() => {
                     void router.push(
-                      `/watch/${stream.stream_id}?categoryId=${encodeURIComponent(
+                      `/live/watch/${stream.stream_id}?categoryId=${encodeURIComponent(
                         categoryId ?? ""
                       )}`
                     );

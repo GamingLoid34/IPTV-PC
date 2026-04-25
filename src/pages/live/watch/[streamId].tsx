@@ -55,8 +55,8 @@ export default function WatchPage() {
     [categoryId]
   );
   const backHref = categoryIdValue
-    ? `/category/${encodeURIComponent(categoryIdValue)}`
-    : "/";
+    ? `/live/category/${encodeURIComponent(categoryIdValue)}`
+    : "/live";
   const maskedUrl = streamUrl ? maskStreamUrl(streamUrl) : "Inte skapad ännu";
 
   useEffect(() => {
@@ -224,7 +224,7 @@ export default function WatchPage() {
   }, [streamUrl, videoElement]);
 
   return (
-    <div className="min-h-screen bg-gray-900 px-4 py-8 text-zinc-100">
+    <div className="px-4 py-8">
       <div className="mx-auto w-full max-w-4xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <Link
