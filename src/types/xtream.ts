@@ -10,6 +10,15 @@ export type XtreamCategory = {
   parent_id: number;
 };
 
+export type XtreamLiveStream = {
+  stream_id: number;
+  name: string;
+  stream_icon: string;
+  epg_channel_id: string | null;
+  num: number;
+  category_id: string;
+};
+
 export type ApiErrorResponse = {
   error: string;
 };

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { XtreamCategory } from "@/types/xtream";
 
 type CategoryListProps = {
@@ -26,9 +27,16 @@ export function CategoryList({
         </button>
       </div>
       <p className="text-zinc-400">{categories.length} kategorier</p>
-      <ul className="max-h-48 list-inside list-disc space-y-1 overflow-y-auto rounded border border-zinc-700 p-2">
+      <ul className="max-h-48 space-y-1 overflow-y-auto rounded border border-zinc-700 p-2">
         {categories.map((c) => (
-          <li key={String(c.category_id)}>{c.category_name}</li>
+          <li key={String(c.category_id)}>
+            <Link
+              href={`/category/${c.category_id}`}
+              className="block cursor-pointer rounded px-2 py-1 text-zinc-200 transition hover:bg-zinc-700/70 hover:text-white"
+            >
+              {c.category_name}
+            </Link>
+          </li>
         ))}
       </ul>
     </div>

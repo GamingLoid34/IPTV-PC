@@ -2,15 +2,17 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { callXtreamApi } from "@/lib/xtreamClient";
 import type {
   ApiErrorResponse,
-  XtreamCategory,
   XtreamCredentials,
+  XtreamLiveStream,
 } from "@/types/xtream";
 
-type ResponseBody = XtreamCategory[] | ApiErrorResponse;
+type StreamsRequestBody = XtreamCredentials & {
+  categoryId: string;
+};
 
-function hasAllCredentials(
-  body: unknown
-): body is XtreamCredentials {
+type ResponseBody = XtreamLiveStream[] | ApiErrorResponse;
+
+function hasStreamsRequestBody(body: unknown): body is StreamsRequestBody {
   if (!body || typeof body !== "object") return false;
   const o = body as Record<string, unknown>;
   return (
@@ -19,7 +21,9 @@ function hasAllCredentials(
     typeof o.username === "string" &&
     o.username.trim() !== "" &&
     typeof o.password === "string" &&
-    o.password !== ""
+    o.password !== "" &&
+    typeof o.categoryId === "string" &&
+    o.categoryId.trim() !== ""
   );
 }
 
@@ -32,22 +36,24 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (!hasAllCredentials(req.body)) {
+  if (!hasStreamsRequestBody(req.body)) {
     return res.status(400).json({
       error:
-        "Alla fält krävs: serverUrl, username och password (får inte vara tomma).",
+        "Alla fält krävs: serverUrl, username, password och categoryId (får inte vara tomma).",
     });
   }
 
-  const credentials = {
-    serverUrl: (req.body as XtreamCredentials).serverUrl.trim(),
-    username: (req.body as XtreamCredentials).username.trim(),
-    password: (req.body as XtreamCredentials).password,
+  const body = req.body as StreamsRequestBody;
+  const credentials: XtreamCredentials = {
+    serverUrl: body.serverUrl.trim(),
+    username: body.username.trim(),
+    password: body.password,
   };
 
-  const result = await callXtreamApi<XtreamCategory[]>(
+  const result = await callXtreamApi<XtreamLiveStream[]>(
     credentials,
-    "get_live_categories"
+    "get_live_streams",
+    { category_id: body.categoryId.trim() }
   );
 
   if (!result.ok) {
