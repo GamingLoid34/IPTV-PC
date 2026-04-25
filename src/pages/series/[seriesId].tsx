@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
+import { Play } from "lucide-react";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
@@ -37,6 +38,15 @@ function episodeTitle(episode: XtreamEpisode): string {
   return `Avsnitt ${episode.episode_num}`;
 }
 
+function episodeLabel(episode: XtreamEpisode): string {
+  const seasonPadded = String(episode.season).padStart(2, "0");
+  const episodeNum = Number(episode.episode_num);
+  const episodePadded = Number.isFinite(episodeNum)
+    ? String(episodeNum).padStart(2, "0")
+    : episode.episode_num;
+  return `S${seasonPadded}E${episodePadded}`;
+}
+
 function seasonDisplayName(seasonNumber: number, seasons: XtreamSeason[]): string {
   const matching = seasons.find((s) => s.season_number === seasonNumber);
   if (matching?.name && matching.name.trim() !== "") return matching.name;
@@ -45,10 +55,8 @@ function seasonDisplayName(seasonNumber: number, seasons: XtreamSeason[]): strin
 
 function EpisodeThumbnail({
   imageUrl,
-  title,
 }: {
   imageUrl: string;
-  title: string;
 }) {
   const [hasImageError, setHasImageError] = useState(false);
   const showImage = imageUrl !== "" && !hasImageError;
@@ -58,7 +66,7 @@ function EpisodeThumbnail({
       {showImage ? (
         <img
           src={imageUrl}
-          alt={`${title} thumbnail`}
+          alt="Episode thumbnail"
           loading="lazy"
           className="h-full w-full object-cover"
           onError={() => {
@@ -66,8 +74,8 @@ function EpisodeThumbnail({
           }}
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-zinc-700/60 p-2 text-center text-xs text-zinc-100">
-          {title}
+        <div className="flex h-full w-full items-center justify-center bg-zinc-700/60 text-zinc-300">
+          <Play size={18} aria-hidden="true" />
         </div>
       )}
     </div>
@@ -406,14 +414,14 @@ export default function SeriesDetailPage() {
                             }}
                             className="flex w-full items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 p-3 text-left transition hover:border-zinc-500 hover:bg-zinc-700/50"
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-800 text-sm font-semibold text-zinc-100">
-                              {episode.episode_num}
+                            <div className="flex h-10 w-[72px] shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-800 px-2 text-xs font-medium text-zinc-200">
+                              {episodeLabel(episode)}
                             </div>
-                            <EpisodeThumbnail imageUrl={thumb} title={titleLabel} />
+                            <EpisodeThumbnail imageUrl={thumb} />
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-medium text-zinc-100">{titleLabel}</p>
                               {episodePlot !== "" && (
-                                <p className="mt-1 line-clamp-3 text-xs text-zinc-300">
+                                <p className="mt-1 line-clamp-2 text-xs text-zinc-300">
                                   {episodePlot}
                                 </p>
                               )}
