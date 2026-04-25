@@ -69,6 +69,20 @@ function episodeLabel(episode: XtreamEpisode): string {
   return `S${seasonPadded}E${episodePadded}`;
 }
 
+function buildEpisodeHeading(seriesName: string, episode: XtreamEpisode): string {
+  const label = episodeLabel(episode);
+  const rawTitle = episode.title?.trim() ?? "";
+  const normalizedSeriesName = seriesName.trim().toLowerCase();
+  const normalizedTitle = rawTitle.toLowerCase();
+
+  if (rawTitle !== "" && normalizedTitle.includes(normalizedSeriesName)) {
+    return rawTitle;
+  }
+
+  const titleSuffix = rawTitle !== "" ? rawTitle : `Avsnitt ${episode.episode_num}`;
+  return `${seriesName} - ${label} - ${titleSuffix}`;
+}
+
 function findEpisodeById(
   seriesInfo: XtreamSeriesInfo,
   targetEpisodeId: string
@@ -262,7 +276,7 @@ export default function SeriesEpisodeWatchPage() {
 
         <h1 className="text-2xl font-semibold text-zinc-100">
           {state.episode
-            ? `${state.seriesName} - ${episodeLabel(state.episode)} - ${episodeTitle(state.episode)}`
+            ? buildEpisodeHeading(state.seriesName, state.episode)
             : "Laddar avsnitt..."}
         </h1>
 
