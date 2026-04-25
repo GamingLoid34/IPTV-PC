@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { loadPlaylist } from "@/lib/playlistStorage";
-import type { SportEvent, SportType } from "@/types/epg";
+import type { EpgManifest, SportEvent, SportType } from "@/types/epg";
 import type { ApiErrorResponse } from "@/types/xtream";
 
 type SportFilter = SportType | "all";
@@ -35,16 +35,18 @@ function endOfLocalDay(offsetDays: number): Date {
   );
 }
 
-function dayLabel(offset: number): string {
-  if (offset === 0) return "Idag";
-  if (offset === 1) return "Imorgon";
+function startOfDayDate(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
 
+function dateTabLabel(offset: number): string {
   const date = new Date();
   date.setDate(date.getDate() + offset);
-  const weekday = new Intl.DateTimeFormat("sv-SE", { weekday: "short" }).format(date);
+  const weekday = new Intl.DateTimeFormat("sv-SE", { weekday: "short" })
+    .format(date)
+    .replace(".", "");
   const day = date.getDate();
-  const month = date.getMonth() + 1;
-  return `${weekday} ${day}/${month}`;
+  return `${weekday} ${day}`;
 }
 
 function sportLabel(type: SportFilter): string {
@@ -71,6 +73,27 @@ function eventTimeLabel(event: SportEvent, selectedDayOffset: number): string {
     new Date(event.startIso)
   );
   return `${weekday} ${formattedTime}`;
+}
+
+function getMatchStatus(
+  nowMs: number,
+  startIso: string,
+  stopIso: string,
+  dayOffset: number
+): "live" | "soon" | "ended" | null {
+  const startMs = Date.parse(startIso);
+  const stopMs = Date.parse(stopIso);
+
+  if (startMs < nowMs && nowMs < stopMs) {
+    return "live";
+  }
+  if (startMs > nowMs && startMs - nowMs < 30 * 60 * 1000) {
+    return "soon";
+  }
+  if (dayOffset === 0 && stopMs < nowMs) {
+    return "ended";
+  }
+  return null;
 }
 
 function formatEventTime(startIso: string, stopIso: string): string {
@@ -103,11 +126,62 @@ export default function SportPage() {
   const [selectedSportType, setSelectedSportType] = useState<SportFilter>("all");
   const [selectedDayOffset, setSelectedDayOffset] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [events, setEvents] = useState<SportEvent[]>([]);
+  const [epgManifest, setEpgManifest] = useState<EpgManifest | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [expandedLeagueKeys, setExpandedLeagueKeys] = useState<Set<string>>(new Set());
   const [playingChannelKey, setPlayingChannelKey] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadManifest = async () => {
+      try {
+        const response = await fetch("/api/epg/status");
+        const data: unknown = await response.json();
+        if (!response.ok || !data || typeof data !== "object") return;
+        if ("cached" in (data as { cached?: boolean })) {
+          if (!cancelled) setEpgManifest(null);
+          return;
+        }
+        if (!cancelled) {
+          setEpgManifest(data as EpgManifest);
+        }
+      } catch {
+        // non-fatal fallback: keep 5 default days
+      }
+    };
+    void loadManifest();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const availableDayOffsets = useMemo(() => {
+    const fallback: Array<0 | 1 | 2 | 3 | 4> = [0, 1, 2, 3, 4];
+    if (!epgManifest) return fallback;
+
+    const epgStart = startOfDayDate(new Date(epgManifest.earliestStart));
+    const epgEnd = startOfDayDate(new Date(epgManifest.latestStop));
+    const offsets = fallback.filter((offset) => {
+      const d = startOfLocalDay(offset);
+      return d >= epgStart && d <= epgEnd;
+    });
+    return offsets.length > 0 ? offsets : fallback;
+  }, [epgManifest]);
+
+  useEffect(() => {
+    if (!availableDayOffsets.includes(selectedDayOffset)) {
+      setSelectedDayOffset(availableDayOffsets[0] ?? 0);
+    }
+  }, [availableDayOffsets, selectedDayOffset]);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,7 +243,7 @@ export default function SportPage() {
     };
   }, [selectedSportType, selectedDayOffset]);
 
-  const now = Date.now();
+  const isFootballGrouped = selectedSportType === "football";
   const liveNow = useMemo(
     () =>
       events.filter((event) => {
@@ -179,7 +253,7 @@ export default function SportPage() {
       }),
     [events, now]
   );
-  const upcoming = useMemo(
+  const nonLiveEvents = useMemo(
     () =>
       events.filter((event) => {
         const start = Date.parse(event.startIso);
@@ -188,6 +262,39 @@ export default function SportPage() {
       }),
     [events, now]
   );
+  const footballLeagueGroups = useMemo(() => {
+    if (!isFootballGrouped) return [];
+
+    const buckets = new Map<string, { key: string; label: string; events: SportEvent[] }>();
+    for (const event of events) {
+      const hasLeague = typeof event.league === "string" && event.league.trim() !== "";
+      const key = hasLeague ? event.league!.trim() : "__other__";
+      const label = hasLeague ? event.league!.trim() : "Övriga matcher";
+      if (!buckets.has(key)) {
+        buckets.set(key, { key, label, events: [] });
+      }
+      buckets.get(key)!.events.push(event);
+    }
+
+    const groups = Array.from(buckets.values()).map((group) => ({
+      ...group,
+      events: group.events.sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso)),
+    }));
+
+    return groups.sort((a, b) => {
+      if (a.key === "__other__") return 1;
+      if (b.key === "__other__") return -1;
+      const aFirst = Date.parse(a.events[0]?.startIso ?? "");
+      const bFirst = Date.parse(b.events[0]?.startIso ?? "");
+      return aFirst - bFirst;
+    });
+  }, [events, isFootballGrouped]);
+
+  useEffect(() => {
+    if (!isFootballGrouped) return;
+    const allKeys = new Set(footballLeagueGroups.map((group) => group.key));
+    setExpandedLeagueKeys(allKeys);
+  }, [isFootballGrouped, footballLeagueGroups]);
 
   const handlePlayChannel = async (eventId: string, epgDisplayName: string) => {
     const credentials = loadPlaylist();
@@ -230,8 +337,36 @@ export default function SportPage() {
     }
   };
 
-  const renderEventRow = (event: SportEvent) => {
+  const renderStatusBadge = (event: SportEvent) => {
+    const status = getMatchStatus(now, event.startIso, event.stopIso, selectedDayOffset);
+    if (status === "live") {
+      return (
+        <span className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase text-white">
+          LIVE
+        </span>
+      );
+    }
+    if (status === "soon") {
+      return (
+        <span className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-950">
+          SNART
+        </span>
+      );
+    }
+    if (status === "ended") {
+      return (
+        <span className="rounded bg-zinc-600 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-100">
+          Avslutad
+        </span>
+      );
+    }
+    return null;
+  };
+
+  const renderEventRow = (event: SportEvent, opts?: { hideLeague?: boolean }) => {
     const isExpanded = expandedEventId === event.id;
+    const hideLeague = opts?.hideLeague ?? false;
+    const badge = renderStatusBadge(event);
     return (
       <li key={event.id}>
         <button
@@ -241,13 +376,14 @@ export default function SportPage() {
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-zinc-100">
-                {eventTimeLabel(event, selectedDayOffset)}
+              <p className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+                <span>{eventTimeLabel(event, selectedDayOffset)}</span>
+                {badge}
               </p>
               <p className="mt-1 truncate text-base font-medium text-white">{event.title}</p>
               <p className="mt-1 text-xs text-zinc-400">
                 {sportLabel(event.sportType)}
-                {event.league ? ` · ${event.league}` : ""}
+                {!hideLeague && event.league ? ` · ${event.league}` : ""}
               </p>
             </div>
             <span className="rounded-full border border-zinc-600 px-2 py-1 text-xs text-zinc-300">
@@ -320,18 +456,19 @@ export default function SportPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {DAY_OFFSETS.map((offset) => (
+          {availableDayOffsets.map((offset) => (
             <button
               key={offset}
               type="button"
               onClick={() => setSelectedDayOffset(offset)}
-              className={`rounded-full px-3 py-1.5 text-sm ${
+              className={`min-w-[78px] rounded-xl px-3 py-2 text-center ${
                 selectedDayOffset === offset
                   ? "bg-emerald-600 text-white"
                   : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"
               }`}
             >
-              {dayLabel(offset)}
+              <span className="block text-sm font-medium">{dateTabLabel(offset)}</span>
+              {offset === 0 && <span className="block text-[10px] opacity-80">(idag)</span>}
             </button>
           ))}
         </div>
@@ -354,7 +491,11 @@ export default function SportPage() {
           </p>
         )}
 
-        {!isLoading && !error && selectedDayOffset === 0 && liveNow.length > 0 && (
+        {!isLoading &&
+          !error &&
+          !isFootballGrouped &&
+          selectedDayOffset === 0 &&
+          liveNow.length > 0 && (
           <section className="space-y-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-200">
               <span className="rounded bg-rose-600 px-2 py-0.5 text-xs text-white">LIVE</span>
@@ -364,12 +505,53 @@ export default function SportPage() {
           </section>
         )}
 
-        {!isLoading && !error && upcoming.length > 0 && (
+        {!isLoading && !error && isFootballGrouped && footballLeagueGroups.length > 0 && (
+          <section className="space-y-3">
+            {footballLeagueGroups.map((group) => {
+              if (group.key === "__other__" && group.events.length === 0) {
+                return null;
+              }
+              const isExpanded = expandedLeagueKeys.has(group.key);
+              return (
+                <div key={group.key} className="rounded-lg border border-zinc-700 bg-zinc-900/20">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedLeagueKeys((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(group.key)) {
+                          next.delete(group.key);
+                        } else {
+                          next.add(group.key);
+                        }
+                        return next;
+                      })
+                    }
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                  >
+                    <span className="text-sm font-semibold text-zinc-100">
+                      {group.label} ({group.events.length}{" "}
+                      {group.events.length === 1 ? "match" : "matcher"})
+                    </span>
+                    <span className="text-zinc-300">{isExpanded ? "▾" : "▸"}</span>
+                  </button>
+                  {isExpanded && (
+                    <ul className="space-y-2 border-t border-zinc-700 p-3">
+                      {group.events.map((event) => renderEventRow(event, { hideLeague: true }))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        )}
+
+        {!isLoading && !error && !isFootballGrouped && nonLiveEvents.length > 0 && (
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-200">
               Kommande events
             </h2>
-            <ul className="space-y-2">{upcoming.map((event) => renderEventRow(event))}</ul>
+            <ul className="space-y-2">{nonLiveEvents.map((event) => renderEventRow(event))}</ul>
           </section>
         )}
       </div>
