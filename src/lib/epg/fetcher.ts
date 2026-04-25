@@ -172,7 +172,17 @@ export async function fetchAndCacheEpg(
     console.info("[EPG] Writing manifest.json - atomic rename incoming");
     await writeFile(path.join(tmpRoot, "manifest.json"), toJson(manifest), "utf8");
 
-    await rm(CACHE_ROOT, { recursive: true, force: true });
+    // Note: Windows requires destination dir to not exist before rename.
+    // We sacrifice atomicity for cross-platform compatibility. The brief window
+    // where no cache exists is acceptable for a personal-use app.
+    try {
+      await rm(CACHE_ROOT, { recursive: true, force: true });
+      console.info("[EPG] Removed existing cache dir for replacement");
+    } catch {
+      console.info("[EPG] No existing cache dir to remove (or already gone)");
+    }
+
+    console.info("[EPG] Renaming temp dir to final cache dir");
     await rename(tmpRoot, CACHE_ROOT);
     console.info(`[EPG] Cache build complete at ${new Date().toISOString()}`);
 
