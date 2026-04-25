@@ -1,25 +1,7 @@
-import { getChannels, searchProgrammes } from "@/lib/epg/reader";
-import { classifySportType, extractLeague } from "@/lib/epg/sportClassifier";
-import type { EpgChannel, SearchIndexEntry, SportEvent, SportType } from "@/types/epg";
-
-const SPORT_CATEGORIES = [
-  "Sports",
-  "Sport",
-  "Football",
-  "Soccer",
-  "Fotboll",
-  "Motor sport",
-  "Motorsport",
-  "Auto racing",
-  "Cycling",
-  "Cykel",
-  "Cykling",
-  "Skiing",
-  "Hockey",
-  "Ice hockey",
-  "Winter",
-  "Tennis",
-];
+import { classifyChannelSportType } from "@/lib/epg/channelSportClassifier";
+import { extractLeague } from "@/lib/epg/sportClassifier";
+import { getChannels, getProgrammesForChannel } from "@/lib/epg/reader";
+import type { EpgChannel, SportEvent, SportType } from "@/types/epg";
 
 function normalizeTitle(title: string): string {
   return title.toLowerCase().trim().replace(/\s+/g, " ");
@@ -45,67 +27,93 @@ export async function getSportEvents(opts: {
   const limit = opts.limit ?? 500;
   const typeFilters = opts.sportTypes ?? [];
   const leagueFilters = (opts.leagues ?? []).map((l) => l.toLowerCase());
-
-  const [entries, channels] = await Promise.all([
-    searchProgrammes("", {
-      fromMs: opts.fromMs,
-      toMs: opts.toMs,
-      categories: SPORT_CATEGORIES,
-    }),
-    getChannels(),
-  ]);
-
-  const channelMap = new Map<string, EpgChannel>(
-    channels.map((channel) => [channel.id, channel])
-  );
+  const channels = await getChannels();
+  // TODO: Cache sport channel classification list in memory if needed.
+  const sportChannels = channels
+    .map((channel) => ({
+      channel,
+      sportType: classifyChannelSportType(channel.displayName),
+    }))
+    .filter((entry): entry is { channel: EpgChannel; sportType: SportType } => !!entry.sportType);
 
   const grouped = new Map<string, SportEvent>();
 
-  for (const entry of entries as SearchIndexEntry[]) {
-    const sportType = classifySportType({
-      title: entry.title,
-      description: entry.description,
-      categories: entry.categories,
-    });
-    if (sportType === "unknown") continue;
-    if (typeFilters.length > 0 && !typeFilters.includes(sportType)) continue;
+  for (const sportChannel of sportChannels) {
+    const channelType = sportChannel.sportType;
+    if (typeFilters.length > 0 && !typeFilters.includes(channelType)) continue;
 
-    const league = extractLeague({
-      title: entry.title,
-      description: entry.description,
-      categories: entry.categories,
-    });
-    if (!leagueAllowed(league, leagueFilters)) continue;
+    const programmes = await getProgrammesForChannel(sportChannel.channel.id);
+    for (const programme of programmes) {
+      const startMs = Date.parse(programme.start);
+      const stopMs = Date.parse(programme.stop);
+      const overlaps = startMs < opts.toMs && stopMs > opts.fromMs;
+      if (!overlaps) continue;
 
-    const eventId = buildEventId(entry.title, entry.startMs);
-    const mappedChannel = channelMap.get(entry.programmeRef.channelId);
-    const channelInfo = {
-      epgChannelId: entry.programmeRef.channelId,
-      displayName: mappedChannel?.displayName ?? entry.programmeRef.channelId,
-      iconUrl: mappedChannel?.icon,
-    };
-
-    const existing = grouped.get(eventId);
-    if (!existing) {
-      grouped.set(eventId, {
-        id: eventId,
-        title: entry.title,
-        description: entry.description,
-        sportType,
-        league,
-        startIso: new Date(entry.startMs).toISOString(),
-        stopIso: new Date(entry.stopMs).toISOString(),
-        channels: [channelInfo],
+      const league = extractLeague({
+        title: programme.title,
+        description: programme.description,
+        categories: programme.categories,
       });
-      continue;
-    }
+      if (!leagueAllowed(league, leagueFilters)) continue;
 
-    if (!existing.channels.some((c) => c.epgChannelId === channelInfo.epgChannelId)) {
-      existing.channels.push(channelInfo);
+      const eventId = buildEventId(programme.title, startMs);
+      const channelInfo = {
+        epgChannelId: sportChannel.channel.id,
+        displayName: sportChannel.channel.displayName,
+        iconUrl: sportChannel.channel.icon,
+      };
+
+      const existing = grouped.get(eventId);
+      if (!existing) {
+        grouped.set(eventId, {
+          id: eventId,
+          title: programme.title,
+          description: programme.description,
+          sportType: channelType,
+          league,
+          startIso: programme.start,
+          stopIso: programme.stop,
+          channels: [channelInfo],
+        });
+        continue;
+      }
+
+      if (!existing.channels.some((c) => c.epgChannelId === channelInfo.epgChannelId)) {
+        existing.channels.push(channelInfo);
+      }
     }
   }
 
   return Array.from(grouped.values())
+    .filter((event) => {
+      if (typeFilters.length > 0 && !typeFilters.includes(event.sportType)) {
+        return false;
+      }
+      if (!leagueAllowed(event.league, leagueFilters)) {
+        return false;
+      }
+      return true;
+    })
     .sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
     .slice(0, limit);
+}
+
+export async function getSportChannels(): Promise<
+  { channelId: string; channelName: string; sportType: SportType }[]
+> {
+  const channels = await getChannels();
+  return channels
+    .map((channel) => {
+      const sportType = classifyChannelSportType(channel.displayName);
+      if (!sportType) return null;
+      return {
+        channelId: channel.id,
+        channelName: channel.displayName,
+        sportType,
+      };
+    })
+    .filter((value): value is { channelId: string; channelName: string; sportType: SportType } =>
+      Boolean(value)
+    )
+    .sort((a, b) => a.channelName.localeCompare(b.channelName));
 }

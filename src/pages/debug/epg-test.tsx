@@ -47,6 +47,7 @@ type MappingResponse = {
 
 type MappingMode = "4k" | "sweden" | "all";
 type SportDayOption = "today" | "tomorrow" | "dayAfterTomorrow";
+type SportChannelDiagnostic = { channelId: string; channelName: string; sportType: SportType };
 
 const INITIAL_CREDENTIALS: XtreamCredentials = {
   serverUrl: "",
@@ -80,6 +81,9 @@ export default function EpgTestPage() {
   const [isLoadingSportEvents, setIsLoadingSportEvents] = useState(false);
   const [sportEvents, setSportEvents] = useState<SportEvent[]>([]);
   const [sportEventsError, setSportEventsError] = useState<string | null>(null);
+  const [isLoadingSportChannels, setIsLoadingSportChannels] = useState(false);
+  const [sportChannels, setSportChannels] = useState<SportChannelDiagnostic[]>([]);
+  const [sportChannelsError, setSportChannelsError] = useState<string | null>(null);
 
   const sportTypeOptions: { id: SportType; label: string }[] = [
     { id: "football", label: "Football" },
@@ -392,13 +396,35 @@ export default function EpgTestPage() {
     );
   };
 
+  const loadSportChannels = async () => {
+    setIsLoadingSportChannels(true);
+    setSportChannelsError(null);
+    setSportChannels([]);
+    try {
+      const response = await fetch("/api/epg/sport-channels");
+      const data: unknown = await response.json();
+      if (!response.ok || !Array.isArray(data)) {
+        const err = data as ApiErrorResponse;
+        setSportChannelsError(err?.error ?? "Kunde inte hämta sport-kanaler.");
+        return;
+      }
+      setSportChannels(data as SportChannelDiagnostic[]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Okänt fel";
+      setSportChannelsError(message);
+    } finally {
+      setIsLoadingSportChannels(false);
+    }
+  };
+
+  const sportChannelCounts = sportChannels.reduce<Record<string, number>>((acc, entry) => {
+    acc[entry.sportType] = (acc[entry.sportType] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <h1 className="mb-4 text-2xl font-semibold">Debug: EPG-test</h1>
-      <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-        Viktigt: Search-index innehåller nu nya fält (title/description). Kör "Hämta + bygg
-        cache" efter deploy för att få korrekta sport-events.
-      </p>
 
       <div className="space-y-3">
         <input
@@ -636,6 +662,9 @@ export default function EpgTestPage() {
 
       <section className="mt-8">
         <h2 className="text-xl font-semibold">Sport events</h2>
+        <p className="mt-2 text-sm text-zinc-300">
+          Diagnostik: börja med "Visa sport-kanaler" för att verifiera kanal-klassificeringen.
+        </p>
         <div className="mt-3 space-y-3">
           <label className="block text-sm">
             <span className="mb-1 block text-zinc-300">Dag</span>
@@ -674,9 +703,49 @@ export default function EpgTestPage() {
           >
             {isLoadingSportEvents ? "Hämtar..." : "Hämta sport-events"}
           </button>
+          <button
+            className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={loadSportChannels}
+            disabled={isLoadingSportChannels}
+          >
+            {isLoadingSportChannels ? "Hämtar..." : "Visa sport-kanaler"}
+          </button>
         </div>
 
         {sportEventsError && <p className="mt-3 text-sm text-rose-300">{sportEventsError}</p>}
+        {sportChannelsError && (
+          <p className="mt-3 text-sm text-rose-300">{sportChannelsError}</p>
+        )}
+        {sportChannels.length > 0 && (
+          <div className="mt-3 space-y-2 text-sm">
+            <p>Sport-kanaler: {sportChannels.length}</p>
+            <p className="text-zinc-300">
+              {Object.entries(sportChannelCounts)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([type, count]) => `${type}: ${count}`)
+                .join(", ")}
+            </p>
+            <div className="overflow-x-auto rounded border border-zinc-700">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-zinc-800">
+                  <tr>
+                    <th className="px-3 py-2">Kanal</th>
+                    <th className="px-3 py-2">Sport-typ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sportChannels.slice(0, 100).map((entry) => (
+                    <tr key={entry.channelId} className="border-t border-zinc-700">
+                      <td className="px-3 py-2">{entry.channelName}</td>
+                      <td className="px-3 py-2">{entry.sportType}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <p className="mt-3 text-sm">Events: {sportEvents.length}</p>
 
         <ul className="mt-2 space-y-3 text-sm">
