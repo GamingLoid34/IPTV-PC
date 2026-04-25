@@ -29,10 +29,36 @@ export interface SearchIndexEntry {
     channelId: string;
     start: string;
   };
+  title: string;
+  description?: string;
   searchText: string;
   categories: string[];
   startMs: number;
   stopMs: number;
+}
+
+export type SportType =
+  | "football"
+  | "motorsport"
+  | "cycling"
+  | "winter"
+  | "tennis"
+  | "other"
+  | "unknown";
+
+export interface SportEvent {
+  id: string;
+  title: string;
+  description?: string;
+  sportType: SportType;
+  league?: string;
+  startIso: string;
+  stopIso: string;
+  channels: {
+    epgChannelId: string;
+    displayName: string;
+    iconUrl?: string;
+  }[];
 }
 
 export interface NowAndNextResult {

@@ -168,6 +168,8 @@ export async function fetchAndCacheEpg(
             channelId: programme.channelId,
             start: programme.start,
           },
+          title: programme.title,
+          description: programme.description,
           searchText,
           categories: programme.categories,
           startMs,

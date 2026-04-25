@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatTimeRange } from "@/lib/epg/formatTime";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
@@ -6,7 +7,13 @@ import type {
   XtreamCredentials,
   XtreamLiveStream,
 } from "@/types/xtream";
-import type { EpgManifest, EpgProgramme, SearchIndexEntry } from "@/types/epg";
+import type {
+  EpgManifest,
+  EpgProgramme,
+  SearchIndexEntry,
+  SportEvent,
+  SportType,
+} from "@/types/epg";
 
 type EpgTestResponse = {
   status: number;
@@ -39,6 +46,7 @@ type MappingResponse = {
 };
 
 type MappingMode = "4k" | "sweden" | "all";
+type SportDayOption = "today" | "tomorrow" | "dayAfterTomorrow";
 
 const INITIAL_CREDENTIALS: XtreamCredentials = {
   serverUrl: "",
@@ -67,6 +75,20 @@ export default function EpgTestPage() {
   const [mappingStats, setMappingStats] = useState<MappingResponse["statistics"] | null>(null);
   const [unmappedPreview, setUnmappedPreview] = useState<MappingItem[]>([]);
   const [mappingError, setMappingError] = useState<string | null>(null);
+  const [sportDay, setSportDay] = useState<SportDayOption>("today");
+  const [sportTypeFilters, setSportTypeFilters] = useState<SportType[]>([]);
+  const [isLoadingSportEvents, setIsLoadingSportEvents] = useState(false);
+  const [sportEvents, setSportEvents] = useState<SportEvent[]>([]);
+  const [sportEventsError, setSportEventsError] = useState<string | null>(null);
+
+  const sportTypeOptions: { id: SportType; label: string }[] = [
+    { id: "football", label: "Football" },
+    { id: "motorsport", label: "Motorsport" },
+    { id: "cycling", label: "Cycling" },
+    { id: "winter", label: "Winter" },
+    { id: "tennis", label: "Tennis" },
+    { id: "other", label: "Other" },
+  ];
 
   useEffect(() => {
     const stored = loadPlaylist();
@@ -325,9 +347,58 @@ export default function EpgTestPage() {
     }
   };
 
+  const runSportEventsQuery = async () => {
+    setIsLoadingSportEvents(true);
+    setSportEventsError(null);
+    setSportEvents([]);
+
+    try {
+      const today = new Date();
+      const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const offset =
+        sportDay === "today" ? 0 : sportDay === "tomorrow" ? 1 : 2;
+      const from = new Date(dayStart.getTime() + offset * 24 * 60 * 60 * 1000);
+      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+
+      const params = new URLSearchParams({
+        fromIso: from.toISOString(),
+        toIso: to.toISOString(),
+        limit: "500",
+      });
+      if (sportTypeFilters.length > 0) {
+        params.set("sportTypes", sportTypeFilters.join(","));
+      }
+
+      const response = await fetch(`/api/epg/sport-events?${params.toString()}`);
+      const data: unknown = await response.json();
+      if (!response.ok || !Array.isArray(data)) {
+        const err = data as ApiErrorResponse;
+        setSportEventsError(err?.error ?? "Kunde inte hämta sport-events.");
+        return;
+      }
+
+      setSportEvents(data as SportEvent[]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Okänt fel";
+      setSportEventsError(message);
+    } finally {
+      setIsLoadingSportEvents(false);
+    }
+  };
+
+  const toggleSportTypeFilter = (type: SportType) => {
+    setSportTypeFilters((prev) =>
+      prev.includes(type) ? prev.filter((value) => value !== type) : [...prev, type]
+    );
+  };
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <h1 className="mb-4 text-2xl font-semibold">Debug: EPG-test</h1>
+      <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+        Viktigt: Search-index innehåller nu nya fält (title/description). Kör "Hämta + bygg
+        cache" efter deploy för att få korrekta sport-events.
+      </p>
 
       <div className="space-y-3">
         <input
@@ -561,6 +632,69 @@ export default function EpgTestPage() {
             </ul>
           </div>
         )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-xl font-semibold">Sport events</h2>
+        <div className="mt-3 space-y-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-zinc-300">Dag</span>
+            <select
+              className="w-full rounded border px-3 py-2 text-black"
+              value={sportDay}
+              onChange={(e) => setSportDay(e.target.value as SportDayOption)}
+            >
+              <option value="today">Idag</option>
+              <option value="tomorrow">Imorgon</option>
+              <option value="dayAfterTomorrow">Övermorgon</option>
+            </select>
+          </label>
+
+          <div>
+            <p className="mb-1 text-sm text-zinc-300">Sport-typer</p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {sportTypeOptions.map((option) => (
+                <label key={option.id} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={sportTypeFilters.includes(option.id)}
+                    onChange={() => toggleSportTypeFilter(option.id)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button
+            className="rounded bg-sky-600 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={runSportEventsQuery}
+            disabled={isLoadingSportEvents}
+          >
+            {isLoadingSportEvents ? "Hämtar..." : "Hämta sport-events"}
+          </button>
+        </div>
+
+        {sportEventsError && <p className="mt-3 text-sm text-rose-300">{sportEventsError}</p>}
+        <p className="mt-3 text-sm">Events: {sportEvents.length}</p>
+
+        <ul className="mt-2 space-y-3 text-sm">
+          {sportEvents.slice(0, 30).map((event) => (
+            <li key={event.id} className="rounded border border-zinc-700 bg-zinc-900/40 p-3">
+              <p className="font-medium text-zinc-100">{event.title}</p>
+              <p className="text-zinc-300">
+                {event.sportType}
+                {event.league ? ` • ${event.league}` : ""}
+              </p>
+              <p className="text-zinc-400">{formatTimeRange(event.startIso, event.stopIso)}</p>
+              <p className="text-zinc-300">Kanaler: {event.channels.length}</p>
+              <p className="text-zinc-400">
+                {event.channels.map((c) => c.displayName).join(", ") || "-"}
+              </p>
+            </li>
+          ))}
+        </ul>
       </section>
     </main>
   );
