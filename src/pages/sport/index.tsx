@@ -94,9 +94,23 @@ export default function SportPage() {
       setError(null);
       setExpandedEventId(null);
       try {
+        const fromIso = startOfLocalDay(selectedDayOffset).toISOString();
+        const toIso = endOfLocalDay(selectedDayOffset).toISOString();
+        console.log(
+          "[SPORT-FRONTEND] dayOffset:",
+          selectedDayOffset,
+          "fromIso:",
+          fromIso,
+          "toIso:",
+          toIso
+        );
+        console.log(
+          "[SPORT-FRONTEND] Local 'today' interpretation:",
+          new Date().toString()
+        );
         const params = new URLSearchParams({
-          fromIso: startOfLocalDay(selectedDayOffset).toISOString(),
-          toIso: endOfLocalDay(selectedDayOffset).toISOString(),
+          fromIso,
+          toIso,
           limit: "500",
         });
         if (selectedSportType !== "all") {

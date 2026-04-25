@@ -75,6 +75,18 @@ export async function getSportEvents(opts: {
     }
 
     for (const programme of programmes) {
+      if (
+        programme.title.toLowerCase().includes("brommapojkarna") ||
+        programme.title.toLowerCase().includes("västerås")
+      ) {
+        console.log("[SPORT-RAW]", {
+          title: programme.title,
+          start: programme.start,
+          stop: programme.stop,
+          startMs: new Date(programme.start).getTime(),
+          stopMs: new Date(programme.stop).getTime(),
+        });
+      }
       const startMs = Date.parse(programme.start);
       const stopMs = Date.parse(programme.stop);
       const overlaps = startMs < opts.toMs && stopMs > opts.fromMs;
