@@ -175,6 +175,22 @@ export function TvGuide({ channels, categoryId }: TvGuideProps) {
     container.scrollLeft = desiredLeft;
   }, [viewStartMs]); // intentional: auto-adjust when time window changes
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const blocks = document.querySelectorAll<HTMLElement>("[data-programme-id]");
+      const dupes = new Map<string, number>();
+      blocks.forEach((el) => {
+        const txt = el.textContent || "";
+        const key = `${el.style.left}_${txt}`;
+        dupes.set(key, (dupes.get(key) || 0) + 1);
+      });
+      const conflicts = Array.from(dupes.entries()).filter(([, count]) => count > 1);
+      console.log("[TVGUIDE-DIAG] Duplicate blocks found:", conflicts);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [epgData]);
+
   const anyMappedChannel = useMemo(() => {
     for (const value of mappedChannelIds.values()) {
       if (value) return true;
@@ -283,6 +299,26 @@ export function TvGuide({ channels, categoryId }: TvGuideProps) {
 
           {channels.map((channel, rowIndex) => {
             const programmes = epgData.get(channel.stream_id) ?? [];
+            const channelName = channel.name;
+            console.log(
+              "[TVGUIDE-DIAG] Channel",
+              channelName,
+              "has",
+              programmes.length,
+              "programmes"
+            );
+            if (/(MTV 80S|NICKELODEON|NICK JR)/i.test(channelName)) {
+              console.log(
+                "[TVGUIDE-DIAG] Programmes for",
+                channelName,
+                ":",
+                programmes.map((p) => ({
+                  title: p.title,
+                  start: p.start,
+                  stop: p.stop,
+                }))
+              );
+            }
             return (
               <div
                 key={channel.stream_id}
@@ -333,6 +369,7 @@ export function TvGuide({ channels, categoryId }: TvGuideProps) {
                       return (
                         <button
                           key={key}
+                          data-programme-id={key}
                           type="button"
                           onClick={() => navigateToWatch(channel.stream_id, channel.name)}
                           onMouseMove={(event) =>
