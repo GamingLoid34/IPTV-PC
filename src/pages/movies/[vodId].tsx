@@ -52,7 +52,7 @@ export default function MovieDetailPage() {
   const [hasPosterError, setHasPosterError] = useState(false);
 
   const backHref = categoryIdValue
-    ? `/movies/category/${encodeURIComponent(categoryIdValue)}`
+    ? `/movies?categoryId=${encodeURIComponent(categoryIdValue)}`
     : "/movies";
 
   useEffect(() => {

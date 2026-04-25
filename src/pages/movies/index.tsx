@@ -1,28 +1,79 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { CategoryList } from "@/components/CategoryList";
+import { CategorySplitView } from "@/components/CategorySplitView";
 import { loadPlaylist } from "@/lib/playlistStorage";
 import type {
   ApiErrorResponse,
   XtreamCategory,
   XtreamCredentials,
+  XtreamVodStream,
 } from "@/types/xtream";
 
 type CategoriesState = {
   isLoading: boolean;
   error: string | null;
   categories: XtreamCategory[];
-  serverUrl: string;
 };
+
+type MoviesState = {
+  isLoading: boolean;
+  error: string | null;
+  movies: XtreamVodStream[];
+};
+
+function MoviePoster({
+  movieName,
+  streamIcon,
+}: {
+  movieName: string;
+  streamIcon: string;
+}) {
+  const [hasImageError, setHasImageError] = useState(false);
+  const showImage = streamIcon.trim() !== "" && !hasImageError;
+
+  return (
+    <div className="aspect-[2/3] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800">
+      {showImage ? (
+        <img
+          src={streamIcon}
+          alt={`${movieName} poster`}
+          loading="lazy"
+          className="h-full w-full object-cover"
+          onError={() => {
+            setHasImageError(true);
+          }}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-zinc-700/60 p-3 text-center text-xs font-medium text-zinc-100">
+          {movieName}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function MoviesIndexPage() {
   const router = useRouter();
+  const selectedCategoryId = useMemo(
+    () => (typeof router.query.categoryId === "string" ? router.query.categoryId : null),
+    [router.query.categoryId]
+  );
   const [state, setState] = useState<CategoriesState>({
     isLoading: true,
     error: null,
     categories: [],
-    serverUrl: "",
   });
+  const [moviesState, setMoviesState] = useState<MoviesState>({
+    isLoading: false,
+    error: null,
+    movies: [],
+  });
+
+  const selectCategory = (id: string) => {
+    void router.push(`/movies?categoryId=${encodeURIComponent(id)}`, undefined, {
+      shallow: true,
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +95,6 @@ export default function MoviesIndexPage() {
         ...prev,
         isLoading: true,
         error: null,
-        serverUrl: normalizedCredentials.serverUrl,
       }));
 
       try {
@@ -80,11 +130,11 @@ export default function MoviesIndexPage() {
         }
 
         if (!cancelled) {
-          setState((prev) => ({
-            ...prev,
+          setState({
             isLoading: false,
+            error: null,
             categories: data as XtreamCategory[],
-          }));
+          });
         }
       } catch {
         if (!cancelled) {
@@ -103,40 +153,140 @@ export default function MoviesIndexPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!selectedCategoryId) {
+      setMoviesState({ isLoading: false, error: null, movies: [] });
+      return;
+    }
+
+    const credentials = loadPlaylist();
+    if (!credentials) return;
+
+    let cancelled = false;
+    setMoviesState({ isLoading: true, error: null, movies: [] });
+
+    const fetchMovies = async () => {
+      try {
+        const response = await fetch("/api/xtream/vod-streams", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...credentials,
+            categoryId: selectedCategoryId,
+          }),
+        });
+
+        const data: unknown = await response.json();
+        if (!response.ok) {
+          const err = data as ApiErrorResponse;
+          if (!cancelled) {
+            setMoviesState({
+              isLoading: false,
+              error: typeof err?.error === "string" ? err.error : "Ett fel uppstod.",
+              movies: [],
+            });
+          }
+          return;
+        }
+
+        if (!Array.isArray(data)) {
+          if (!cancelled) {
+            setMoviesState({
+              isLoading: false,
+              error: "Oväntat svar från servern.",
+              movies: [],
+            });
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setMoviesState({
+            isLoading: false,
+            error: null,
+            movies: data as XtreamVodStream[],
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setMoviesState({
+            isLoading: false,
+            error: "Nätverksfel: kunde inte hämta filmer.",
+            movies: [],
+          });
+        }
+      }
+    };
+
+    void fetchMovies();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCategoryId]);
+
+  const categoriesForPanel = state.categories.map((category) => ({
+    id: String(category.category_id),
+    name: category.category_name,
+  }));
+
   return (
-    <main className="px-4 py-8">
-      <div className="mx-auto w-full max-w-3xl space-y-4 rounded-2xl border border-zinc-700 bg-zinc-800/80 p-6 shadow-xl">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-100">Filmkategorier</h1>
-          <p className="mt-1 text-sm text-zinc-400">Välj en kategori för att visa filmer.</p>
+    <main className="px-4 py-4">
+      {state.isLoading && <p className="text-sm text-zinc-300">Laddar kategorier...</p>}
+
+      {!state.isLoading && state.error && (
+        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+          {state.error}
         </div>
+      )}
 
-        {state.isLoading && <p className="text-sm text-zinc-300">Laddar...</p>}
+      {!state.isLoading && !state.error && (
+        <CategorySplitView
+          categories={categoriesForPanel}
+          selectedCategoryId={selectedCategoryId}
+          onSelectCategory={selectCategory}
+          searchPlaceholder="Sök kategori..."
+          emptyStateMessage="Välj en kategori för att se innehållet."
+        >
+          {moviesState.isLoading && <p className="text-sm text-zinc-300">Laddar filmer...</p>}
+          {!moviesState.isLoading && moviesState.error && (
+            <p className="rounded border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+              {moviesState.error}
+            </p>
+          )}
+          {!moviesState.isLoading && !moviesState.error && (
+            <>
+              <ul className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                {moviesState.movies.map((movie) => (
+                  <li key={movie.stream_id}>
+                    <button
+                      type="button"
+                      className="group w-full text-left"
+                      onClick={() => {
+                        void router.push(
+                          `/movies/${movie.stream_id}?categoryId=${encodeURIComponent(
+                            selectedCategoryId ?? ""
+                          )}`
+                        );
+                      }}
+                    >
+                      <div className="transition duration-200 group-hover:scale-105">
+                        <MoviePoster movieName={movie.name} streamIcon={movie.stream_icon} />
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-xs text-zinc-200">{movie.name}</p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
 
-        {!state.isLoading && state.error && (
-          <div className="space-y-3 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
-            <p>{state.error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                void router.replace("/");
-              }}
-              className="rounded-lg border border-zinc-600 bg-zinc-900/50 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
-            >
-              Tillbaka
-            </button>
-          </div>
-        )}
-
-        {!state.isLoading && !state.error && (
-          <CategoryList
-            serverUrl={state.serverUrl}
-            categories={state.categories}
-            hrefBasePath="/movies/category"
-            countLabel="VOD-kategorier"
-          />
-        )}
-      </div>
+              {moviesState.movies.length === 0 && (
+                <p className="mt-3 rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-300">
+                  Inga filmer hittades i den här kategorin.
+                </p>
+              )}
+            </>
+          )}
+        </CategorySplitView>
+      )}
     </main>
   );
 }

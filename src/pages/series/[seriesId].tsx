@@ -107,7 +107,7 @@ export default function SeriesDetailPage() {
   const [hasPosterError, setHasPosterError] = useState(false);
 
   const backHref = categoryIdValue
-    ? `/series/category/${encodeURIComponent(categoryIdValue)}`
+    ? `/series?categoryId=${encodeURIComponent(categoryIdValue)}`
     : "/series";
 
   useEffect(() => {

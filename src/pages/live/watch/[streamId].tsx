@@ -62,7 +62,7 @@ export default function WatchPage() {
     [streamName]
   );
   const backHref = categoryIdValue
-    ? `/live/category/${encodeURIComponent(categoryIdValue)}`
+    ? `/live?categoryId=${encodeURIComponent(categoryIdValue)}`
     : "/live";
   const maskedUrl = streamUrl ? maskStreamUrl(streamUrl) : "Inte skapad ännu";
 
