@@ -1,7 +1,6 @@
 import path from "node:path";
 import { Readable } from "node:stream";
-import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import type { XtreamCredentials } from "@/types/xtream";
 import type {
   EpgChannel,
@@ -25,7 +24,19 @@ function toJson(data: unknown): string {
 export async function fetchAndCacheEpg(
   credentials: XtreamCredentials
 ): Promise<EpgManifest> {
+  const cacheParent = path.dirname(CACHE_ROOT);
+  await mkdir(cacheParent, { recursive: true });
   await ensureCacheDirs();
+
+  const tmpRoot = path.join(cacheParent, "epg-cache-tmp");
+  const tmpProgrammesDir = path.join(tmpRoot, "programmes-by-channel");
+  try {
+    await access(tmpRoot);
+    await rm(tmpRoot, { recursive: true, force: true });
+    console.info("[EPG] Removed stale temp dir");
+  } catch {
+    // no stale temp dir
+  }
 
   const baseUrl = credentials.serverUrl.trim().replace(/\/+$/, "");
   const params = new URLSearchParams({
@@ -34,86 +45,108 @@ export async function fetchAndCacheEpg(
   });
   const sourceUrl = `${baseUrl}/xmltv.php?${params.toString()}`;
 
-  const response = await fetch(sourceUrl, {
-    method: "GET",
-    headers: {
-      "User-Agent": XTREAM_USER_AGENT,
-    },
-  });
-
-  if (response.status !== 200) {
-    throw new Error(`EPG fetch misslyckades (HTTP ${response.status}).`);
-  }
-
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (
-    !contentType.startsWith("application/xml") &&
-    !contentType.startsWith("text/xml")
-  ) {
-    throw new Error(`Fel content-type för EPG: ${contentType || "(saknas)"}`);
-  }
-
-  if (!response.body) {
-    throw new Error("EPG-svaret innehåller ingen body.");
-  }
-
   const channels: EpgChannel[] = [];
   const programmesByChannel = new Map<string, EpgProgramme[]>();
   const searchIndex: SearchIndexEntry[] = [];
+  let parsedChannels = 0;
   let programmeCount = 0;
   let earliestStartMs = Number.POSITIVE_INFINITY;
   let latestStopMs = Number.NEGATIVE_INFINITY;
-
-  await parseXmltvStream(
-    Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
-    (channel) => {
-      channels.push(channel);
-    },
-    (programme) => {
-      programmeCount += 1;
-      const existing = programmesByChannel.get(programme.channelId);
-      if (existing) {
-        existing.push(programme);
-      } else {
-        programmesByChannel.set(programme.channelId, [programme]);
-      }
-
-      const title = programme.title.toLowerCase();
-      const description = (programme.description ?? "").toLowerCase();
-      const searchText = `${title} ${description}`.trim();
-      const startMs = Date.parse(programme.start);
-      const stopMs = Date.parse(programme.stop);
-      earliestStartMs = Math.min(earliestStartMs, startMs);
-      latestStopMs = Math.max(latestStopMs, stopMs);
-
-      searchIndex.push({
-        programmeRef: {
-          channelId: programme.channelId,
-          start: programme.start,
-        },
-        searchText,
-        categories: programme.categories,
-        startMs,
-        stopMs,
-      });
-    }
-  );
-
-  if (!Number.isFinite(earliestStartMs) || !Number.isFinite(latestStopMs)) {
-    throw new Error("Ingen programme-data hittades i XMLTV.");
-  }
-
-  const cacheParent = path.dirname(CACHE_ROOT);
-  await mkdir(cacheParent, { recursive: true });
-  const tmpRoot = path.join(cacheParent, `epg-cache-tmp-${Date.now()}`);
-  const tmpProgrammesDir = path.join(tmpRoot, "programmes-by-channel");
-
-  await rm(tmpRoot, { recursive: true, force: true });
-  await mkdir(tmpProgrammesDir, { recursive: true });
+  let nodeStream: Readable | null = null;
+  let parseCompleted = false;
 
   try {
+    console.info(`[EPG] Starting fetch at ${new Date().toISOString()}`);
+    const response = await fetch(sourceUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": XTREAM_USER_AGENT,
+      },
+    });
+
+    const contentTypeHeader = response.headers.get("content-type");
+    const contentLengthHeader = response.headers.get("content-length");
+    console.info(
+      `[EPG] HTTP response received. Status: ${response.status} Content-Type: ${
+        contentTypeHeader ?? "(missing)"
+      } Content-Length: ${contentLengthHeader ?? "(missing)"}`
+    );
+
+    if (response.status !== 200) {
+      throw new Error(`EPG fetch misslyckades (HTTP ${response.status}).`);
+    }
+
+    const contentType = contentTypeHeader?.toLowerCase() ?? "";
+    if (
+      !contentType.startsWith("application/xml") &&
+      !contentType.startsWith("text/xml")
+    ) {
+      throw new Error(`Fel content-type för EPG: ${contentType || "(saknas)"}`);
+    }
+
+    if (!response.body) {
+      throw new Error("Empty response body from XMLTV endpoint");
+    }
+
+    nodeStream = Readable.fromWeb(response.body as any);
+    console.info("[EPG] Starting stream parse");
+    await parseXmltvStream(
+      nodeStream,
+      (channel) => {
+        channels.push(channel);
+        parsedChannels += 1;
+        if (parsedChannels % 500 === 0) {
+          console.info(`[EPG] Parsed ${parsedChannels} channels so far`);
+        }
+      },
+      (programme) => {
+        programmeCount += 1;
+        if (programmeCount % 25000 === 0) {
+          console.info(`[EPG] Parsed ${programmeCount} programmes so far`);
+        }
+
+        const existing = programmesByChannel.get(programme.channelId);
+        if (existing) {
+          existing.push(programme);
+        } else {
+          programmesByChannel.set(programme.channelId, [programme]);
+        }
+
+        const title = programme.title.toLowerCase();
+        const description = (programme.description ?? "").toLowerCase();
+        const searchText = `${title} ${description}`.trim();
+        const startMs = Date.parse(programme.start);
+        const stopMs = Date.parse(programme.stop);
+        earliestStartMs = Math.min(earliestStartMs, startMs);
+        latestStopMs = Math.max(latestStopMs, stopMs);
+
+        searchIndex.push({
+          programmeRef: {
+            channelId: programme.channelId,
+            start: programme.start,
+          },
+          searchText,
+          categories: programme.categories,
+          startMs,
+          stopMs,
+        });
+      }
+    );
+    parseCompleted = true;
+    console.info(
+      `[EPG] Parse complete. Channels: ${channels.length} Programmes: ${programmeCount}`
+    );
+
+    if (!Number.isFinite(earliestStartMs) || !Number.isFinite(latestStopMs)) {
+      throw new Error("Ingen programme-data hittades i XMLTV.");
+    }
+
+    await mkdir(tmpProgrammesDir, { recursive: true });
+
+    console.info("[EPG] Writing channels.json");
     await writeFile(path.join(tmpRoot, "channels.json"), toJson(channels), "utf8");
 
+    console.info(`[EPG] Writing ${programmesByChannel.size} programme files`);
     for (const [channelId, programmes] of programmesByChannel.entries()) {
       const safeName = sanitizeChannelId(channelId);
       await writeFile(
@@ -123,6 +156,7 @@ export async function fetchAndCacheEpg(
       );
     }
 
+    console.info("[EPG] Writing search-index.json");
     await writeFile(path.join(tmpRoot, "search-index.json"), toJson(searchIndex), "utf8");
 
     const manifest: EpgManifest = {
@@ -132,17 +166,24 @@ export async function fetchAndCacheEpg(
       programmeCount,
       earliestStart: new Date(earliestStartMs).toISOString(),
       latestStop: new Date(latestStopMs).toISOString(),
-      totalSizeBytes: Number(response.headers.get("content-length") ?? 0),
+      totalSizeBytes: Number(contentLengthHeader ?? 0),
     };
 
+    console.info("[EPG] Writing manifest.json - atomic rename incoming");
     await writeFile(path.join(tmpRoot, "manifest.json"), toJson(manifest), "utf8");
 
     await rm(CACHE_ROOT, { recursive: true, force: true });
     await rename(tmpRoot, CACHE_ROOT);
+    console.info(`[EPG] Cache build complete at ${new Date().toISOString()}`);
 
     return manifest;
   } catch (error) {
     await rm(tmpRoot, { recursive: true, force: true });
-    throw error;
+    const message = error instanceof Error ? error.message : "Okänt fel";
+    throw new Error(`EPG refresh failed: ${message}`);
+  } finally {
+    if (!parseCompleted && nodeStream && typeof nodeStream.destroy === "function") {
+      nodeStream.destroy();
+    }
   }
 }
