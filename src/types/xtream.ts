@@ -76,6 +76,52 @@ export type XtreamSeries = {
   category_id: string;
 };
 
+export type XtreamEpisodeInfo = {
+  movie_image?: string;
+  plot?: string;
+  duration_secs?: number;
+  duration?: string;
+  rating?: string;
+};
+
+export type XtreamEpisode = {
+  id: string;
+  episode_num: string;
+  title?: string;
+  container_extension: string;
+  info: XtreamEpisodeInfo;
+  added: string;
+  season: number;
+};
+
+export type XtreamSeason = {
+  season_number: number;
+  name: string;
+  cover: string;
+  overview: string;
+  episode_count: number;
+};
+
+export type XtreamSeriesInfo = {
+  info: {
+    name: string;
+    cover?: string;
+    plot?: string;
+    genre?: string;
+    cast?: string;
+    director?: string;
+    releaseDate?: string;
+    rating?: string;
+    rating_5based?: number;
+    backdrop_path?: string[];
+    youtube_trailer?: string;
+    episode_run_time?: string;
+    category_id?: string;
+  };
+  seasons: XtreamSeason[];
+  episodes: Record<string, XtreamEpisode[]>;
+};
+
 export type ApiErrorResponse = {
   error: string;
 };

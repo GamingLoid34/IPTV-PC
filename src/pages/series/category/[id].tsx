@@ -188,7 +188,11 @@ export default function SeriesCategoryPage() {
                   className="group w-full text-left"
                   onClick={() => {
                     // Xtream uses series_id for series entities (not stream_id).
-                    console.log("series_id:", series.series_id);
+                    void router.push(
+                      `/series/${series.series_id}?categoryId=${encodeURIComponent(
+                        categoryId ?? ""
+                      )}`
+                    );
                   }}
                 >
                   <div className="transition duration-200 group-hover:scale-105">
