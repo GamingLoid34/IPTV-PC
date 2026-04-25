@@ -10,6 +10,8 @@ export type XtreamCategory = {
   parent_id: number;
 };
 
+export type XtreamSeriesCategory = XtreamCategory;
+
 export type XtreamLiveStream = {
   stream_id: number;
   name: string;
@@ -55,6 +57,23 @@ export type XtreamVodInfo = {
     container_extension: string;
     category_id: string;
   };
+};
+
+export type XtreamSeries = {
+  num: number;
+  name: string;
+  series_id: number;
+  cover: string;
+  plot?: string;
+  cast?: string;
+  director?: string;
+  genre?: string;
+  releaseDate?: string;
+  rating?: string;
+  rating_5based?: number;
+  backdrop_path?: string[];
+  episode_run_time?: string;
+  category_id: string;
 };
 
 export type ApiErrorResponse = {
