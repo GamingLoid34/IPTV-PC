@@ -3,9 +3,13 @@ import type { EpgChannel } from "@/types/epg";
 export function normalizeChannelName(name: string): string {
   const lowered = name.toLowerCase();
   const withoutPrefix = lowered.replace(/^[a-z]{2,3}\s*[:|]\s*/, "");
-  const withoutSeparators = withoutPrefix.replace(/[|:-]+/g, " ");
+  const withoutQualityPrefix = withoutPrefix.replace(/^(4k|hd|sd|fhd|uhd)\s*[:\-|]?\s*/, "");
+  const withoutSeparators = withoutQualityPrefix.replace(/[|:-]+/g, " ");
   const asciiOnly = withoutSeparators.replace(/[^a-z0-9\s]/g, " ");
-  let normalized = asciiOnly;
+  let normalized = asciiOnly.replace(
+    /\b(uhd|hd|sd|fhd|4k|8k|2160p|1080p|720p|3840p|raw|ultra)\b/g,
+    " "
+  );
 
   let previous = "";
   while (normalized !== previous) {
@@ -59,6 +63,8 @@ export function findEpgChannel(
 
 export function testNormalization(): { input: string; output: string }[] {
   const cases = [
+    "4K: ELEVEN ᴾᴸ ᵁᴴᴰ ³⁸⁴⁰ᴾ",
+    "4K: SKY SPORTS F1 ᵁᴴᴰ ³⁸⁴⁰ᴾ",
     "SE: SVT 1 ᴴᴰ ⱽᴵᴾ",
     "SE: SVT1 ᵁᴸᵀᴿᴬ ᴿᴬᵂ",
     "SE: TV4 FOTBOLL ᴴᴰ ⱽᴵᴾ",

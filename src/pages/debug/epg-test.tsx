@@ -38,6 +38,8 @@ type MappingResponse = {
   };
 };
 
+type MappingMode = "4k" | "sweden" | "all";
+
 const INITIAL_CREDENTIALS: XtreamCredentials = {
   serverUrl: "",
   username: "",
@@ -202,7 +204,7 @@ export default function EpgTestPage() {
     }
   };
 
-  const mapSubsetChannels = async () => {
+  const mapChannelsByMode = async (mode: MappingMode) => {
     setIsMappingChannels(true);
     setMappingError(null);
     setMappingStats(null);
@@ -234,13 +236,28 @@ export default function EpgTestPage() {
         return;
       }
 
-      const categories = (categoriesBody as XtreamCategory[]).slice(0, 5);
+      const allCategories = categoriesBody as XtreamCategory[];
+      const selectedCategories =
+        mode === "4k"
+          ? allCategories.slice(0, 5)
+          : mode === "sweden"
+            ? allCategories
+                .filter((c) => /(^|\b)(se|sweden|sverige)(\b|$)/i.test(c.category_name))
+                .slice(0, 3)
+            : allCategories;
+
+      if (selectedCategories.length === 0) {
+        setMappingError("Inga kategorier matchade testvalet.");
+        return;
+      }
+
+      const maxChannels = mode === "all" ? 2000 : 200;
       const collected: XtreamLiveStream[] = [];
 
-      for (let i = 0; i < categories.length; i += 1) {
-        const category = categories[i];
+      for (let i = 0; i < selectedCategories.length; i += 1) {
+        const category = selectedCategories[i];
         setMappingProgress(
-          `Hämtar kanaler för kategori ${i + 1}/${categories.length}: ${category.category_name}`
+          `Hämtar kategori ${i + 1}/${selectedCategories.length}: ${category.category_name}`
         );
         const streamsResponse = await fetch("/api/xtream/streams", {
           method: "POST",
@@ -257,21 +274,21 @@ export default function EpgTestPage() {
 
         for (const stream of streamsBody as XtreamLiveStream[]) {
           collected.push(stream);
-          if (collected.length >= 200) {
+          if (collected.length >= maxChannels) {
             break;
           }
         }
-        if (collected.length >= 200) {
+        if (collected.length >= maxChannels) {
           break;
         }
       }
 
       const deduped = Array.from(
         new Map(collected.map((stream) => [stream.stream_id, stream])).values()
-      ).slice(0, 200);
+      ).slice(0, maxChannels);
 
       setMappingProgress(
-        `Skickar subset till mapping endpoint (${deduped.length} kanaler från upp till 5 kategorier)...`
+        `Skickar subset till mapping endpoint (${deduped.length} kanaler)...`
       );
       const mappingResponse = await fetch("/api/epg/map-channels", {
         method: "POST",
@@ -293,7 +310,13 @@ export default function EpgTestPage() {
       const parsed = mappingBody as MappingResponse;
       setMappingStats(parsed.statistics);
       setUnmappedPreview(parsed.mappings.filter((m) => !m.epgChannel).slice(0, 30));
-      setMappingProgress("Klar. Detta är test-mappning på subset (max 200 kanaler).");
+      const modeLabel =
+        mode === "4k"
+          ? "Test: 4K-kategorier"
+          : mode === "sweden"
+            ? "Test: svenska kanaler"
+            : "Test: alla kanaler";
+      setMappingProgress(`${modeLabel} klar. Delmängd analyserad (${deduped.length} kanaler).`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt fel";
       setMappingError(message);
@@ -449,7 +472,8 @@ export default function EpgTestPage() {
       <section className="mt-8">
         <h2 className="text-xl font-semibold">Channel mapping diagnostics</h2>
         <p className="mt-2 text-sm text-zinc-300">
-          Testmappning körs på subset: max 200 kanaler från de 5 första kategorierna.
+          Testmappning kan köras på olika urval. Resultatet visar total/mapped/unmapped och
+          första 30 unmapped.
         </p>
         <div className="mt-3 flex flex-wrap gap-3">
           <button
@@ -463,10 +487,32 @@ export default function EpgTestPage() {
           <button
             className="rounded bg-orange-600 px-4 py-2 text-white disabled:opacity-60"
             type="button"
-            onClick={mapSubsetChannels}
+            onClick={() => {
+              void mapChannelsByMode("4k");
+            }}
             disabled={isMappingChannels}
           >
-            {isMappingChannels ? "Mappar..." : "Mappa alla mina Xtream-kanaler"}
+            {isMappingChannels ? "Mappar..." : "Test: 4K-kategorier"}
+          </button>
+          <button
+            className="rounded bg-cyan-700 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              void mapChannelsByMode("sweden");
+            }}
+            disabled={isMappingChannels}
+          >
+            {isMappingChannels ? "Mappar..." : "Test: svenska kanaler"}
+          </button>
+          <button
+            className="rounded bg-red-700 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              void mapChannelsByMode("all");
+            }}
+            disabled={isMappingChannels}
+          >
+            {isMappingChannels ? "Mappar..." : "Test: alla kanaler (kan ta tid)"}
           </button>
         </div>
 
