@@ -94,7 +94,7 @@ export async function getSportEvents(opts: {
       if (!overlaps) continue;
       programmesInWindow += 1;
       const durationMs = stopMs - startMs;
-      if (durationMs > 8 * 60 * 60 * 1000) {
+      if (durationMs > 6 * 60 * 60 * 1000) {
         skippedTooLongCount += 1;
         continue;
       }
@@ -149,7 +149,7 @@ export async function getSportEvents(opts: {
   console.log(
     "[SPORT] Skipped",
     skippedTooLongCount,
-    "programmes as too long (>8h block events)"
+    "programmes as too long (>6h block events)"
   );
   const deduplicatedEvents = grouped.size;
   console.log("[SPORT] After dedup:", deduplicatedEvents);

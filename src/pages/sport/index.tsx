@@ -354,7 +354,7 @@ export default function SportPage() {
           </p>
         )}
 
-        {!isLoading && !error && liveNow.length > 0 && (
+        {!isLoading && !error && selectedDayOffset === 0 && liveNow.length > 0 && (
           <section className="space-y-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-200">
               <span className="rounded bg-rose-600 px-2 py-0.5 text-xs text-white">LIVE</span>
