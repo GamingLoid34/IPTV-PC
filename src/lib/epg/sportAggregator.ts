@@ -24,6 +24,10 @@ export async function getSportEvents(opts: {
   leagues?: string[];
   limit?: number;
 }): Promise<SportEvent[]> {
+  console.log("[SPORT] Starting aggregation. fromMs:", opts.fromMs, "toMs:", opts.toMs);
+  console.log("[SPORT] Time window:", new Date(opts.fromMs).toISOString(), "to", new Date(opts.toMs).toISOString());
+  console.log("[SPORT] sportTypes filter:", opts.sportTypes);
+
   const limit = opts.limit ?? 500;
   const typeFilters = opts.sportTypes ?? [];
   const leagueFilters = (opts.leagues ?? []).map((l) => l.toLowerCase());
@@ -35,19 +39,50 @@ export async function getSportEvents(opts: {
       sportType: classifyChannelSportType(channel.displayName),
     }))
     .filter((entry): entry is { channel: EpgChannel; sportType: SportType } => !!entry.sportType);
+  console.log("[SPORT] Found", sportChannels.length, "sport channels");
 
   const grouped = new Map<string, SportEvent>();
+  let channelsRead = 0;
+  let totalProgrammes = 0;
+  let programmesInWindow = 0;
+  let sampleLogged = 0;
 
   for (const sportChannel of sportChannels) {
     const channelType = sportChannel.sportType;
     if (typeFilters.length > 0 && !typeFilters.includes(channelType)) continue;
 
     const programmes = await getProgrammesForChannel(sportChannel.channel.id);
+    channelsRead += 1;
+    totalProgrammes += programmes.length;
+    if (sampleLogged < 5) {
+      console.log(
+        "[SPORT] Sample channel:",
+        sportChannel.channel.displayName,
+        "id:",
+        sportChannel.channel.id,
+        "programme count:",
+        programmes.length
+      );
+      if (programmes.length > 0) {
+        const first = programmes[0];
+        console.log(
+          "[SPORT]   first programme:",
+          first.title,
+          "start:",
+          first.start,
+          "stop:",
+          first.stop
+        );
+      }
+      sampleLogged += 1;
+    }
+
     for (const programme of programmes) {
       const startMs = Date.parse(programme.start);
       const stopMs = Date.parse(programme.stop);
       const overlaps = startMs < opts.toMs && stopMs > opts.fromMs;
       if (!overlaps) continue;
+      programmesInWindow += 1;
 
       const league = extractLeague({
         title: programme.title,
@@ -84,7 +119,13 @@ export async function getSportEvents(opts: {
     }
   }
 
-  return Array.from(grouped.values())
+  console.log("[SPORT] Read programmes from", channelsRead, "channels");
+  console.log("[SPORT] Total programmes before time filter:", totalProgrammes);
+  console.log("[SPORT] Programmes within time window:", programmesInWindow);
+  const deduplicatedEvents = grouped.size;
+  console.log("[SPORT] After dedup:", deduplicatedEvents);
+
+  const afterTypeAndLeagueFilter = Array.from(grouped.values())
     .filter((event) => {
       if (typeFilters.length > 0 && !typeFilters.includes(event.sportType)) {
         return false;
@@ -93,9 +134,17 @@ export async function getSportEvents(opts: {
         return false;
       }
       return true;
-    })
+    });
+  const filteredEvents = afterTypeAndLeagueFilter.length;
+  console.log("[SPORT] After sportTypes filter:", filteredEvents);
+
+  const finalEvents = afterTypeAndLeagueFilter
     .sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
     .slice(0, limit);
+  const finalCount = finalEvents.length;
+  console.log("[SPORT] Final result count:", finalCount);
+
+  return finalEvents;
 }
 
 export async function getSportChannels(): Promise<
