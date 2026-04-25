@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { loadPlaylist } from "@/lib/playlistStorage";
-import type { XtreamCredentials } from "@/types/xtream";
+import type {
+  ApiErrorResponse,
+  XtreamCategory,
+  XtreamCredentials,
+  XtreamLiveStream,
+} from "@/types/xtream";
 import type { EpgManifest, EpgProgramme, SearchIndexEntry } from "@/types/epg";
 
 type EpgTestResponse = {
@@ -10,6 +15,27 @@ type EpgTestResponse = {
   bodyPreview: string;
   bodyTotalSize: number;
   looksLikeXmlTv: boolean;
+};
+
+type NormalizationRow = {
+  input: string;
+  output: string;
+};
+
+type MappingItem = {
+  stream_id: number;
+  xtreamName: string;
+  epgChannel: { id: string; displayName: string; icon?: string } | null;
+};
+
+type MappingResponse = {
+  mappings: MappingItem[];
+  statistics: {
+    totalChannels: number;
+    mappedCount: number;
+    unmappedCount: number;
+    mappedPercentage: number;
+  };
 };
 
 const INITIAL_CREDENTIALS: XtreamCredentials = {
@@ -32,6 +58,13 @@ export default function EpgTestPage() {
   const [searchResults, setSearchResults] = useState<SearchIndexEntry[]>([]);
   const [channelId, setChannelId] = useState("");
   const [channelProgrammes, setChannelProgrammes] = useState<EpgProgramme[]>([]);
+  const [normalizationRows, setNormalizationRows] = useState<NormalizationRow[]>([]);
+  const [isLoadingNormalization, setIsLoadingNormalization] = useState(false);
+  const [isMappingChannels, setIsMappingChannels] = useState(false);
+  const [mappingProgress, setMappingProgress] = useState("Ingen mapping-körning ännu.");
+  const [mappingStats, setMappingStats] = useState<MappingResponse["statistics"] | null>(null);
+  const [unmappedPreview, setUnmappedPreview] = useState<MappingItem[]>([]);
+  const [mappingError, setMappingError] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = loadPlaylist();
@@ -149,6 +182,123 @@ export default function EpgTestPage() {
       setChannelProgrammes([]);
     } finally {
       setIsLoadingChannel(false);
+    }
+  };
+
+  const runNormalizationTest = async () => {
+    setIsLoadingNormalization(true);
+    try {
+      const response = await fetch("/api/epg/normalization-test");
+      const data: unknown = await response.json();
+      if (!response.ok || !Array.isArray(data)) {
+        setNormalizationRows([]);
+        return;
+      }
+      setNormalizationRows(data as NormalizationRow[]);
+    } catch {
+      setNormalizationRows([]);
+    } finally {
+      setIsLoadingNormalization(false);
+    }
+  };
+
+  const mapSubsetChannels = async () => {
+    setIsMappingChannels(true);
+    setMappingError(null);
+    setMappingStats(null);
+    setUnmappedPreview([]);
+    setMappingProgress("Kontrollerar EPG-cache...");
+
+    try {
+      const statusResponse = await fetch("/api/epg/status");
+      const statusBody: unknown = await statusResponse.json();
+      if (!statusResponse.ok) {
+        setMappingError("Kunde inte läsa EPG-status.");
+        return;
+      }
+      if ("cached" in (statusBody as { cached?: boolean })) {
+        setMappingError("EPG-cache saknas. Kör först 'Hämta + bygg cache'.");
+        return;
+      }
+
+      setMappingProgress("Hämtar live-kategorier...");
+      const categoriesResponse = await fetch("/api/xtream/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      });
+      const categoriesBody: unknown = await categoriesResponse.json();
+      if (!categoriesResponse.ok || !Array.isArray(categoriesBody)) {
+        const err = categoriesBody as ApiErrorResponse;
+        setMappingError(err?.error ?? "Kunde inte hämta kategorier.");
+        return;
+      }
+
+      const categories = (categoriesBody as XtreamCategory[]).slice(0, 5);
+      const collected: XtreamLiveStream[] = [];
+
+      for (let i = 0; i < categories.length; i += 1) {
+        const category = categories[i];
+        setMappingProgress(
+          `Hämtar kanaler för kategori ${i + 1}/${categories.length}: ${category.category_name}`
+        );
+        const streamsResponse = await fetch("/api/xtream/streams", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...credentials,
+            categoryId: category.category_id,
+          }),
+        });
+        const streamsBody: unknown = await streamsResponse.json();
+        if (!streamsResponse.ok || !Array.isArray(streamsBody)) {
+          continue;
+        }
+
+        for (const stream of streamsBody as XtreamLiveStream[]) {
+          collected.push(stream);
+          if (collected.length >= 200) {
+            break;
+          }
+        }
+        if (collected.length >= 200) {
+          break;
+        }
+      }
+
+      const deduped = Array.from(
+        new Map(collected.map((stream) => [stream.stream_id, stream])).values()
+      ).slice(0, 200);
+
+      setMappingProgress(
+        `Skickar subset till mapping endpoint (${deduped.length} kanaler från upp till 5 kategorier)...`
+      );
+      const mappingResponse = await fetch("/api/epg/map-channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          xtreamChannels: deduped.map((stream) => ({
+            stream_id: stream.stream_id,
+            name: stream.name,
+          })),
+        }),
+      });
+      const mappingBody: unknown = await mappingResponse.json();
+      if (!mappingResponse.ok) {
+        const err = mappingBody as ApiErrorResponse;
+        setMappingError(err?.error ?? "Mapping misslyckades.");
+        return;
+      }
+
+      const parsed = mappingBody as MappingResponse;
+      setMappingStats(parsed.statistics);
+      setUnmappedPreview(parsed.mappings.filter((m) => !m.epgChannel).slice(0, 30));
+      setMappingProgress("Klar. Detta är test-mappning på subset (max 200 kanaler).");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Okänt fel";
+      setMappingError(message);
+    } finally {
+      setIsMappingChannels(false);
     }
   };
 
@@ -294,6 +444,77 @@ export default function EpgTestPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-xl font-semibold">Channel mapping diagnostics</h2>
+        <p className="mt-2 text-sm text-zinc-300">
+          Testmappning körs på subset: max 200 kanaler från de 5 första kategorierna.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button
+            className="rounded bg-teal-600 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={runNormalizationTest}
+            disabled={isLoadingNormalization}
+          >
+            {isLoadingNormalization ? "Kör..." : "Testa normalisering"}
+          </button>
+          <button
+            className="rounded bg-orange-600 px-4 py-2 text-white disabled:opacity-60"
+            type="button"
+            onClick={mapSubsetChannels}
+            disabled={isMappingChannels}
+          >
+            {isMappingChannels ? "Mappar..." : "Mappa alla mina Xtream-kanaler"}
+          </button>
+        </div>
+
+        <p className="mt-3 text-sm text-zinc-300">{mappingProgress}</p>
+        {mappingError && <p className="mt-2 text-sm text-rose-300">{mappingError}</p>}
+
+        {normalizationRows.length > 0 && (
+          <div className="mt-4 overflow-x-auto rounded border border-zinc-700">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-zinc-800">
+                <tr>
+                  <th className="px-3 py-2">Input</th>
+                  <th className="px-3 py-2">Output</th>
+                </tr>
+              </thead>
+              <tbody>
+                {normalizationRows.map((row) => (
+                  <tr key={row.input} className="border-t border-zinc-700">
+                    <td className="px-3 py-2">{row.input}</td>
+                    <td className="px-3 py-2">{row.output}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {mappingStats && (
+          <div className="mt-4 space-y-1 text-sm">
+            <p>Total: {mappingStats.totalChannels}</p>
+            <p>Mapped: {mappingStats.mappedCount}</p>
+            <p>Unmapped: {mappingStats.unmappedCount}</p>
+            <p>Mapped %: {mappingStats.mappedPercentage}</p>
+          </div>
+        )}
+
+        {unmappedPreview.length > 0 && (
+          <div className="mt-4">
+            <h3 className="font-medium">Första 30 unmapped</h3>
+            <ul className="mt-2 space-y-1 text-sm text-zinc-300">
+              {unmappedPreview.map((item) => (
+                <li key={item.stream_id}>
+                  {item.stream_id}: {item.xtreamName}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
     </main>
   );
