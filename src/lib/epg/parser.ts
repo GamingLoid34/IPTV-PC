@@ -65,7 +65,7 @@ export async function parseXmltvStream(
     const parser = sax.parser(false, {
       trim: true,
       normalize: true,
-      lowercase: false,
+      lowercase: true,
       xmlns: false,
       position: true,
     });
@@ -100,7 +100,8 @@ export async function parseXmltvStream(
       if (tag === "channel") {
         const id = String(node.attributes.id ?? "").trim();
         if (!id) {
-          finishReject(new Error("XMLTV channel saknar id."));
+          console.warn("[EPG] Skipping channel without id at position", parser.position);
+          currentChannel = null;
           return;
         }
         currentChannel = { id, displayName: "" };
@@ -120,7 +121,11 @@ export async function parseXmltvStream(
         const startRaw = String(node.attributes.start ?? "").trim();
         const stopRaw = String(node.attributes.stop ?? "").trim();
         if (!channelId || !startRaw || !stopRaw) {
-          finishReject(new Error("XMLTV programme saknar channel/start/stop."));
+          console.warn(
+            "[EPG] Skipping programme without channel/start/stop at position",
+            parser.position
+          );
+          currentProgramme = null;
           return;
         }
         try {
