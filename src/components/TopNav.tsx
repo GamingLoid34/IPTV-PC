@@ -8,6 +8,7 @@ const navItems = [
   { href: "/live", label: "Live" },
   { href: "/movies", label: "Filmer" },
   { href: "/series", label: "Serier" },
+  { href: "/sport", label: "Sport" },
 ];
 
 export function TopNav() {
