@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { testNormalization } from "@/lib/epg/channelMatcher";
 import type { ApiErrorResponse } from "@/types/xtream";
 
-type ResponseBody = { input: string; output: string }[] | ApiErrorResponse;
+type ResponseBody = { input: string; output: string; country: string | null }[] | ApiErrorResponse;
 
 export default function handler(req: NextApiRequest, res: NextApiResponse<ResponseBody>) {
   if (req.method !== "GET") {

@@ -1,5 +1,16 @@
 import type { EpgChannel } from "@/types/epg";
 
+export function extractCountryCode(name: string): string | null {
+  const match = name.trim().match(/^([A-Z]{2,3})\s*[:|]\s*/);
+  if (!match) return null;
+  return match[1].slice(0, 2).toLowerCase();
+}
+
+export function extractCountryCodeFromEpgId(epgId: string): string | null {
+  const match = epgId.toLowerCase().match(/\.([a-z]{2})$/);
+  return match ? match[1] : null;
+}
+
 export function normalizeChannelName(name: string): string {
   const lowered = name.toLowerCase();
   const withoutPrefix = lowered.replace(/^[a-z]{2,3}\s*[:|]\s*/, "");
@@ -26,8 +37,10 @@ export function buildEpgIndex(epgChannels: EpgChannel[]): Map<string, EpgChannel
   const index = new Map<string, EpgChannel[]>();
 
   for (const channel of epgChannels) {
-    const key = normalizeChannelName(channel.displayName);
-    if (!key) continue;
+    const normalized = normalizeChannelName(channel.displayName);
+    if (!normalized) continue;
+    const country = extractCountryCodeFromEpgId(channel.id);
+    const key = country ? `${country}:${normalized}` : `_:${normalized}`;
 
     const existing = index.get(key);
     if (existing) {
@@ -44,27 +57,53 @@ export function findEpgChannel(
   xtreamName: string,
   epgIndex: Map<string, EpgChannel[]>
 ): EpgChannel | null {
-  const key = normalizeChannelName(xtreamName);
-  if (!key) return null;
+  const normalized = normalizeChannelName(xtreamName);
+  if (!normalized) return null;
+  const country = extractCountryCode(xtreamName);
 
-  const matches = epgIndex.get(key);
-  if (!matches || matches.length === 0) {
-    return null;
+  if (country) {
+    const strictKey = `${country}:${normalized}`;
+    const strictMatches = epgIndex.get(strictKey);
+    if (strictMatches && strictMatches.length > 0) {
+      if (strictMatches.length > 1) {
+        console.warn(
+          `[EPG] Ambiguous strict country match for "${xtreamName}" (${strictKey}) -> ${strictMatches.length} candidates`
+        );
+      }
+      return strictMatches[0] ?? null;
+    }
   }
 
-  if (matches.length > 1) {
-    console.warn(
-      `[EPG] Ambiguous channel match for "${xtreamName}" (normalized "${key}") -> ${matches.length} candidates`
-    );
+  const fallbackKey = `_:${normalized}`;
+  const fallbackMatches = epgIndex.get(fallbackKey);
+  if (fallbackMatches && fallbackMatches.length > 0) {
+    if (fallbackMatches.length > 1) {
+      console.warn(
+        `[EPG] Ambiguous country-less match for "${xtreamName}" (${fallbackKey}) -> ${fallbackMatches.length} candidates`
+      );
+    }
+    return fallbackMatches[0] ?? null;
   }
 
-  return matches[0] ?? null;
+  for (const [key, matches] of epgIndex.entries()) {
+    if (!key.endsWith(`:${normalized}`)) continue;
+    if (matches.length > 1) {
+      console.warn(
+        `[EPG] Ambiguous loose fallback for "${xtreamName}" (normalized "${normalized}") -> ${matches.length} candidates`
+      );
+    }
+    return matches[0] ?? null;
+  }
+
+  return null;
 }
 
-export function testNormalization(): { input: string; output: string }[] {
+export function testNormalization(): { input: string; output: string; country: string | null }[] {
   const cases = [
     "4K: ELEVEN ᴾᴸ ᵁᴴᴰ ³⁸⁴⁰ᴾ",
     "4K: SKY SPORTS F1 ᵁᴴᴰ ³⁸⁴⁰ᴾ",
+    "SE: TV3 ᴴᴰ ⱽᴵᴾ",
+    "HU: TV4 FOTBOLL ᴴᴰ ⱽᴵᴾ",
     "SE: SVT 1 ᴴᴰ ⱽᴵᴾ",
     "SE: SVT1 ᵁᴸᵀᴿᴬ ᴿᴬᵂ",
     "SE: TV4 FOTBOLL ᴴᴰ ⱽᴵᴾ",
@@ -78,5 +117,6 @@ export function testNormalization(): { input: string; output: string }[] {
   return cases.map((input) => ({
     input,
     output: normalizeChannelName(input),
+    country: extractCountryCode(input),
   }));
 }

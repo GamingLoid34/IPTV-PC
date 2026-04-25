@@ -27,6 +27,7 @@ type EpgTestResponse = {
 type NormalizationRow = {
   input: string;
   output: string;
+  country: string | null;
 };
 
 type MappingItem = {
@@ -78,6 +79,7 @@ export default function EpgTestPage() {
   const [isMappingChannels, setIsMappingChannels] = useState(false);
   const [mappingProgress, setMappingProgress] = useState("Ingen mapping-körning ännu.");
   const [mappingStats, setMappingStats] = useState<MappingResponse["statistics"] | null>(null);
+  const [mappedPreview, setMappedPreview] = useState<MappingItem[]>([]);
   const [unmappedPreview, setUnmappedPreview] = useState<MappingItem[]>([]);
   const [mappingError, setMappingError] = useState<string | null>(null);
   const [sportDay, setSportDay] = useState<SportDayOption>("today");
@@ -244,6 +246,7 @@ export default function EpgTestPage() {
     setIsMappingChannels(true);
     setMappingError(null);
     setMappingStats(null);
+    setMappedPreview([]);
     setUnmappedPreview([]);
     setMappingProgress("Kontrollerar EPG-cache...");
 
@@ -345,6 +348,7 @@ export default function EpgTestPage() {
 
       const parsed = mappingBody as MappingResponse;
       setMappingStats(parsed.statistics);
+      setMappedPreview(parsed.mappings.filter((m) => m.epgChannel).slice(0, 30));
       setUnmappedPreview(parsed.mappings.filter((m) => !m.epgChannel).slice(0, 30));
       const modeLabel =
         mode === "4k"
@@ -660,6 +664,7 @@ export default function EpgTestPage() {
                 <tr>
                   <th className="px-3 py-2">Input</th>
                   <th className="px-3 py-2">Output</th>
+                  <th className="px-3 py-2">Country</th>
                 </tr>
               </thead>
               <tbody>
@@ -667,6 +672,7 @@ export default function EpgTestPage() {
                   <tr key={row.input} className="border-t border-zinc-700">
                     <td className="px-3 py-2">{row.input}</td>
                     <td className="px-3 py-2">{row.output}</td>
+                    <td className="px-3 py-2">{row.country ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -680,6 +686,21 @@ export default function EpgTestPage() {
             <p>Mapped: {mappingStats.mappedCount}</p>
             <p>Unmapped: {mappingStats.unmappedCount}</p>
             <p>Mapped %: {mappingStats.mappedPercentage}</p>
+          </div>
+        )}
+
+        {mappedPreview.length > 0 && (
+          <div className="mt-4">
+            <h3 className="font-medium">Första 30 mapped (med EPG-id)</h3>
+            <ul className="mt-2 space-y-1 text-sm text-zinc-300">
+              {mappedPreview.map((item) => (
+                <li key={`mapped-${item.stream_id}`}>
+                  {item.stream_id}: {item.xtreamName}
+                  {" -> "}
+                  {item.epgChannel?.id ?? "-"}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
