@@ -12,6 +12,10 @@ function hasCategory(categories: string[], needles: string[]): boolean {
   return normalized.some((cat) => targets.includes(cat));
 }
 
+function hasTeamVsPattern(text: string): boolean {
+  return /\b.+\s(-|v|vs)\s.+\b/i.test(text);
+}
+
 export function classifySportType(programme: ProgrammeLike): SportType {
   if (hasCategory(programme.categories, ["Football", "Soccer", "Fotboll"])) {
     return "football";
@@ -32,30 +36,51 @@ export function classifySportType(programme: ProgrammeLike): SportType {
   const text = `${programme.title} ${programme.description ?? ""}`.toLowerCase();
 
   if (
-    /\b(premier league|la liga|champions league|allsvenskan|fotboll|fc |football match|soccer)\b/.test(
+    /\b(premier league|la liga|champions league|europa league|conference league|allsvenskan|bundesliga|serie a|ligue 1|world cup|euros|euro 2024|euro 2028|fifa|uefa|cup final)\b/.test(
       text
-    )
+    ) ||
+    /\b(soccer|football match|fotboll|fußball)\b/.test(text)
   ) {
     return "football";
   }
-  if (/\b(formula 1|f1\b|indycar|indy car|nascar|motogp|moto gp|grand prix)\b/.test(text)) {
+  if (
+    /\b(formula 1|formel 1|f1|indycar|nascar|motogp|moto gp|grand prix|gp\b|qualifying|practice session|race highlights)\b/.test(
+      text
+    )
+  ) {
     return "motorsport";
   }
-  if (/\b(tour de france|giro|vuelta|cykel|cycling|cyklist)\b/.test(text)) {
+  if (/\b(tour de france|giro d'?italia|vuelta|paris-roubaix|milano-sanremo|cykel|cycling|stage \d+)\b/.test(text)) {
     return "cycling";
   }
-  if (/\b(längdåkning|skiing|skidor|biathlon|skidskytte|alpint|nhl|shl|hockey)\b/.test(text)) {
+  if (
+    /\b(nhl|shl|premier hockey|hockey|ishockey|biathlon|skidskytte|längdåkning|cross-country|alpint|slalom|downhill|world cup ski)\b/.test(
+      text
+    )
+  ) {
     return "winter";
   }
-  if (/\b(atp|wta|wimbledon|us open tennis|french open|tennis)\b/.test(text)) {
+  if (
+    /\b(atp|wta|grand slam|wimbledon|roland garros|us open tennis|australian open|french open|tennis match)\b/.test(
+      text
+    )
+  ) {
     return "tennis";
   }
 
-  if (hasCategory(programme.categories, ["Sport", "Sports"])) {
-    return "other";
+  return "unknown";
+}
+
+export function classifyProgrammeSportType(programme: ProgrammeLike): SportType | null {
+  const specific = classifySportType(programme);
+  if (specific !== "unknown") return specific;
+
+  const text = `${programme.title} ${programme.description ?? ""}`.toLowerCase();
+  if (hasTeamVsPattern(text)) {
+    return "football";
   }
 
-  return "unknown";
+  return null;
 }
 
 export function extractLeague(programme: ProgrammeLike): string | undefined {

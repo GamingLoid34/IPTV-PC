@@ -1,5 +1,8 @@
-import { classifyChannelSportType } from "@/lib/epg/channelSportClassifier";
-import { extractLeague } from "@/lib/epg/sportClassifier";
+import {
+  classifyChannelSportTypeStrict,
+  isSportChannel,
+} from "@/lib/epg/channelSportClassifier";
+import { classifyProgrammeSportType, extractLeague } from "@/lib/epg/sportClassifier";
 import { getChannels, getProgrammesForChannel } from "@/lib/epg/reader";
 import type { EpgChannel, SportEvent, SportType } from "@/types/epg";
 
@@ -32,13 +35,8 @@ export async function getSportEvents(opts: {
   const typeFilters = opts.sportTypes ?? [];
   const leagueFilters = (opts.leagues ?? []).map((l) => l.toLowerCase());
   const channels = await getChannels();
-  // TODO: Cache sport channel classification list in memory if needed.
-  const sportChannels = channels
-    .map((channel) => ({
-      channel,
-      sportType: classifyChannelSportType(channel.displayName),
-    }))
-    .filter((entry): entry is { channel: EpgChannel; sportType: SportType } => !!entry.sportType);
+  // TODO: Cache sport channel detection results in memory if needed.
+  const sportChannels = channels.filter((channel) => isSportChannel(channel.displayName));
   console.log("[SPORT] Found", sportChannels.length, "sport channels");
 
   const grouped = new Map<string, SportEvent>();
@@ -48,18 +46,17 @@ export async function getSportEvents(opts: {
   let sampleLogged = 0;
 
   for (const sportChannel of sportChannels) {
-    const channelType = sportChannel.sportType;
-    if (typeFilters.length > 0 && !typeFilters.includes(channelType)) continue;
+    const channelStrictType = classifyChannelSportTypeStrict(sportChannel.displayName);
 
-    const programmes = await getProgrammesForChannel(sportChannel.channel.id);
+    const programmes = await getProgrammesForChannel(sportChannel.id);
     channelsRead += 1;
     totalProgrammes += programmes.length;
     if (sampleLogged < 5) {
       console.log(
         "[SPORT] Sample channel:",
-        sportChannel.channel.displayName,
+        sportChannel.displayName,
         "id:",
-        sportChannel.channel.id,
+        sportChannel.id,
         "programme count:",
         programmes.length
       );
@@ -84,6 +81,15 @@ export async function getSportEvents(opts: {
       if (!overlaps) continue;
       programmesInWindow += 1;
 
+      const programmeType = classifyProgrammeSportType({
+        title: programme.title,
+        description: programme.description,
+        categories: programme.categories,
+      });
+      const resolvedType = programmeType ?? channelStrictType;
+      if (!resolvedType) continue;
+      if (typeFilters.length > 0 && !typeFilters.includes(resolvedType)) continue;
+
       const league = extractLeague({
         title: programme.title,
         description: programme.description,
@@ -93,9 +99,9 @@ export async function getSportEvents(opts: {
 
       const eventId = buildEventId(programme.title, startMs);
       const channelInfo = {
-        epgChannelId: sportChannel.channel.id,
-        displayName: sportChannel.channel.displayName,
-        iconUrl: sportChannel.channel.icon,
+        epgChannelId: sportChannel.id,
+        displayName: sportChannel.displayName,
+        iconUrl: sportChannel.icon,
       };
 
       const existing = grouped.get(eventId);
@@ -104,7 +110,7 @@ export async function getSportEvents(opts: {
           id: eventId,
           title: programme.title,
           description: programme.description,
-          sportType: channelType,
+          sportType: resolvedType,
           league,
           startIso: programme.start,
           stopIso: programme.stop,
@@ -148,21 +154,24 @@ export async function getSportEvents(opts: {
 }
 
 export async function getSportChannels(): Promise<
-  { channelId: string; channelName: string; sportType: SportType }[]
+  { channelId: string; channelName: string; strictSportType: SportType | null }[]
 > {
   const channels = await getChannels();
   return channels
     .map((channel) => {
-      const sportType = classifyChannelSportType(channel.displayName);
-      if (!sportType) return null;
+      if (!isSportChannel(channel.displayName)) return null;
+      const strictSportType = classifyChannelSportTypeStrict(channel.displayName);
       return {
         channelId: channel.id,
         channelName: channel.displayName,
-        sportType,
+        strictSportType,
       };
     })
-    .filter((value): value is { channelId: string; channelName: string; sportType: SportType } =>
-      Boolean(value)
+    .filter(
+      (
+        value
+      ): value is { channelId: string; channelName: string; strictSportType: SportType | null } =>
+        Boolean(value)
     )
     .sort((a, b) => a.channelName.localeCompare(b.channelName));
 }

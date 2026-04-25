@@ -4,7 +4,7 @@ import type { SportType } from "@/types/epg";
 import type { ApiErrorResponse } from "@/types/xtream";
 
 type ResponseBody =
-  | { channelId: string; channelName: string; sportType: SportType }[]
+  | { channelId: string; channelName: string; strictSportType: SportType | null }[]
   | ApiErrorResponse;
 
 export default async function handler(

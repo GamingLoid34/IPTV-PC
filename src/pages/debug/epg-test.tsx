@@ -47,7 +47,11 @@ type MappingResponse = {
 
 type MappingMode = "4k" | "sweden" | "all";
 type SportDayOption = "today" | "tomorrow" | "dayAfterTomorrow";
-type SportChannelDiagnostic = { channelId: string; channelName: string; sportType: SportType };
+type SportChannelDiagnostic = {
+  channelId: string;
+  channelName: string;
+  strictSportType: SportType | null;
+};
 
 const INITIAL_CREDENTIALS: XtreamCredentials = {
   serverUrl: "",
@@ -84,6 +88,12 @@ export default function EpgTestPage() {
   const [isLoadingSportChannels, setIsLoadingSportChannels] = useState(false);
   const [sportChannels, setSportChannels] = useState<SportChannelDiagnostic[]>([]);
   const [sportChannelsError, setSportChannelsError] = useState<string | null>(null);
+  const [programmeTestTitle, setProgrammeTestTitle] = useState("");
+  const [programmeTestDescription, setProgrammeTestDescription] = useState("");
+  const [programmeTestResult, setProgrammeTestResult] = useState<SportType | null | undefined>(
+    undefined
+  );
+  const [isTestingProgramme, setIsTestingProgramme] = useState(false);
 
   const sportTypeOptions: { id: SportType; label: string }[] = [
     { id: "football", label: "Football" },
@@ -417,10 +427,37 @@ export default function EpgTestPage() {
     }
   };
 
-  const sportChannelCounts = sportChannels.reduce<Record<string, number>>((acc, entry) => {
-    acc[entry.sportType] = (acc[entry.sportType] ?? 0) + 1;
+  const strictTypeCounts = sportChannels.reduce<Record<string, number>>((acc, entry) => {
+    if (!entry.strictSportType) return acc;
+    acc[entry.strictSportType] = (acc[entry.strictSportType] ?? 0) + 1;
     return acc;
   }, {});
+  const genericChannelCount = sportChannels.filter((entry) => entry.strictSportType === null).length;
+
+  const testProgrammeClassification = async () => {
+    setIsTestingProgramme(true);
+    setProgrammeTestResult(undefined);
+    try {
+      const response = await fetch("/api/epg/sport-programme-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: programmeTestTitle,
+          description: programmeTestDescription,
+        }),
+      });
+      const data: unknown = await response.json();
+      if (!response.ok || !data || typeof data !== "object") {
+        setProgrammeTestResult(undefined);
+        return;
+      }
+      setProgrammeTestResult((data as { sportType?: SportType | null }).sportType ?? null);
+    } catch {
+      setProgrammeTestResult(undefined);
+    } finally {
+      setIsTestingProgramme(false);
+    }
+  };
 
   return (
     <main className="mx-auto max-w-3xl p-6">
@@ -719,26 +756,27 @@ export default function EpgTestPage() {
         )}
         {sportChannels.length > 0 && (
           <div className="mt-3 space-y-2 text-sm">
-            <p>Sport-kanaler: {sportChannels.length}</p>
+            <p>Total sport-kanaler: {sportChannels.length}</p>
             <p className="text-zinc-300">
-              {Object.entries(sportChannelCounts)
+              {Object.entries(strictTypeCounts)
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([type, count]) => `${type}: ${count}`)
-                .join(", ")}
+                .join(", ") || "Inga strict-typer klassificerade"}
             </p>
+            <p className="text-zinc-300">generic: {genericChannelCount}</p>
             <div className="overflow-x-auto rounded border border-zinc-700">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-zinc-800">
                   <tr>
                     <th className="px-3 py-2">Kanal</th>
-                    <th className="px-3 py-2">Sport-typ</th>
+                    <th className="px-3 py-2">Strict sport-typ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sportChannels.slice(0, 100).map((entry) => (
                     <tr key={entry.channelId} className="border-t border-zinc-700">
                       <td className="px-3 py-2">{entry.channelName}</td>
-                      <td className="px-3 py-2">{entry.sportType}</td>
+                      <td className="px-3 py-2">{entry.strictSportType ?? "generic"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -746,6 +784,38 @@ export default function EpgTestPage() {
             </div>
           </div>
         )}
+
+        <div className="mt-4 rounded border border-zinc-700 bg-zinc-900/30 p-3">
+          <h3 className="text-sm font-medium">Test programme</h3>
+          <div className="mt-2 space-y-2">
+            <input
+              className="w-full rounded border px-3 py-2 text-black"
+              placeholder="Titel"
+              value={programmeTestTitle}
+              onChange={(e) => setProgrammeTestTitle(e.target.value)}
+            />
+            <textarea
+              className="w-full rounded border px-3 py-2 text-black"
+              placeholder="Beskrivning (valfritt)"
+              value={programmeTestDescription}
+              onChange={(e) => setProgrammeTestDescription(e.target.value)}
+              rows={3}
+            />
+            <button
+              className="rounded bg-violet-700 px-4 py-2 text-white disabled:opacity-60"
+              type="button"
+              onClick={testProgrammeClassification}
+              disabled={isTestingProgramme}
+            >
+              {isTestingProgramme ? "Testar..." : "Test programme"}
+            </button>
+            {programmeTestResult !== undefined && (
+              <p className="text-sm text-zinc-300">
+                Resultat: {programmeTestResult ?? "null (inte sport)"}
+              </p>
+            )}
+          </div>
+        </div>
         <p className="mt-3 text-sm">Events: {sportEvents.length}</p>
 
         <ul className="mt-2 space-y-3 text-sm">
