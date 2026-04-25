@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { CategorySplitView } from "@/components/CategorySplitView";
-import { formatStartTime, formatTimeRange } from "@/lib/epg/formatTime";
+import { TvGuide } from "@/components/TvGuide";
 import { loadPlaylist } from "@/lib/playlistStorage";
-import type { NowAndNextResult } from "@/types/epg";
 import type {
   ApiErrorResponse,
   XtreamCategory,
@@ -23,36 +22,6 @@ type StreamsState = {
   streams: XtreamLiveStream[];
 };
 
-function StreamIcon({
-  name,
-  streamIcon,
-}: {
-  name: string;
-  streamIcon: string;
-}) {
-  const [hasImageError, setHasImageError] = useState(false);
-  const showImage = streamIcon.trim() !== "" && !hasImageError;
-  const fallbackLabel = name.trim().charAt(0).toUpperCase() || "?";
-
-  return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-700 text-sm font-semibold text-zinc-100">
-      {showImage ? (
-        <img
-          src={streamIcon}
-          alt={`${name} logga`}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          onError={() => {
-            setHasImageError(true);
-          }}
-        />
-      ) : (
-        <span>{fallbackLabel}</span>
-      )}
-    </div>
-  );
-}
-
 export default function LiveIndexPage() {
   const router = useRouter();
   const selectedCategoryId = useMemo(
@@ -69,9 +38,6 @@ export default function LiveIndexPage() {
     error: null,
     streams: [],
   });
-  const [epgByStreamId, setEpgByStreamId] = useState<Map<number, NowAndNextResult>>(
-    new Map()
-  );
 
   const selectCategory = (id: string) => {
     void router.push(`/live?categoryId=${encodeURIComponent(id)}`, undefined, {
@@ -160,7 +126,6 @@ export default function LiveIndexPage() {
   useEffect(() => {
     if (!selectedCategoryId) {
       setStreamsState({ isLoading: false, error: null, streams: [] });
-      setEpgByStreamId(new Map());
       return;
     }
 
@@ -211,7 +176,6 @@ export default function LiveIndexPage() {
             error: null,
             streams: data as XtreamLiveStream[],
           });
-          setEpgByStreamId(new Map());
         }
       } catch {
         if (!cancelled) {
@@ -229,46 +193,6 @@ export default function LiveIndexPage() {
       cancelled = true;
     };
   }, [selectedCategoryId]);
-
-  useEffect(() => {
-    if (streamsState.streams.length === 0) return;
-
-    let cancelled = false;
-    const loadNowAndNext = async () => {
-      try {
-        const response = await fetch("/api/epg/now-and-next", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            xtreamChannels: streamsState.streams.map((stream) => ({
-              stream_id: stream.stream_id,
-              name: stream.name,
-            })),
-          }),
-        });
-
-        const data: unknown = await response.json();
-        if (!response.ok || !data || typeof data !== "object") return;
-        const results = (data as { results?: unknown }).results;
-        if (!Array.isArray(results)) return;
-
-        if (!cancelled) {
-          const map = new Map<number, NowAndNextResult>();
-          for (const item of results as NowAndNextResult[]) {
-            map.set(item.stream_id, item);
-          }
-          setEpgByStreamId(map);
-        }
-      } catch {
-        // graceful no-EPG fallback
-      }
-    };
-
-    void loadNowAndNext();
-    return () => {
-      cancelled = true;
-    };
-  }, [streamsState.streams]);
 
   const categoriesForPanel = state.categories.map((category) => ({
     id: String(category.category_id),
@@ -300,47 +224,18 @@ export default function LiveIndexPage() {
             </p>
           )}
           {!streamsState.isLoading && !streamsState.error && (
-            <ul className="space-y-2">
-              {streamsState.streams.map((stream) => {
-                const epg = epgByStreamId.get(stream.stream_id);
-                const nowText = epg?.now
-                  ? `Nu: ${epg.now.title} (${formatTimeRange(epg.now.start, epg.now.stop)})`
-                  : null;
-                const nextText =
-                  !epg?.now && epg?.next
-                    ? `Nästa: ${epg.next.title} (${formatStartTime(epg.next.start)})`
-                    : null;
-
-                return (
-                  <li key={stream.stream_id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void router.push(
-                          `/live/watch/${stream.stream_id}?categoryId=${encodeURIComponent(
-                            selectedCategoryId ?? ""
-                          )}&streamName=${encodeURIComponent(stream.name)}`
-                        );
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-left transition hover:border-zinc-500 hover:bg-zinc-700/60"
-                    >
-                      <StreamIcon name={stream.name} streamIcon={stream.stream_icon} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-zinc-100">{stream.name}</p>
-                        {nowText && <p className="truncate text-xs text-zinc-400">{nowText}</p>}
-                        {nextText && <p className="truncate text-xs text-zinc-400">{nextText}</p>}
-                        <p className="text-xs text-zinc-400">#{stream.num}</p>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-              {streamsState.streams.length === 0 && (
-                <li className="rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-300">
+            <>
+              {streamsState.streams.length === 0 ? (
+                <p className="rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-300">
                   Inga kanaler hittades i den här kategorin.
-                </li>
+                </p>
+              ) : (
+                <TvGuide
+                  channels={streamsState.streams}
+                  categoryId={selectedCategoryId ?? ""}
+                />
               )}
-            </ul>
+            </>
           )}
         </CategorySplitView>
       )}
