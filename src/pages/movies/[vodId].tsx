@@ -42,7 +42,6 @@ export default function MovieDetailPage() {
     [categoryId]
   );
 
-  const [credentials, setCredentials] = useState<XtreamCredentials | null>(null);
   const [state, setState] = useState<MovieDetailState>({
     isLoading: true,
     error: null,
@@ -79,7 +78,6 @@ export default function MovieDetailPage() {
       username: stored.username.trim(),
       password: stored.password,
     };
-    setCredentials(normalizedCredentials);
     setHasBackdropError(false);
     setHasPosterError(false);
 
@@ -262,17 +260,8 @@ export default function MovieDetailPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    const ext = state.containerExtension ?? "mp4";
-                    if (!credentials || parsedVodId == null) return;
-                    const base = credentials.serverUrl.trim().replace(/\/+$/, "");
-                    const streamUrl = `${base}/movie/${encodeURIComponent(
-                      credentials.username
-                    )}/${encodeURIComponent(credentials.password)}/${parsedVodId}.${ext}`;
-                    console.log("Play movie:", {
-                      vodId: parsedVodId,
-                      container_extension: ext,
-                      streamUrl,
-                    });
+                    if (parsedVodId == null) return;
+                    void router.push(`/movies/${parsedVodId}/watch`);
                   }}
                   className="inline-flex items-center rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
                 >
