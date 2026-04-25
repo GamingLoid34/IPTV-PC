@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
+import { formatStartTime, formatTimeRange } from "@/lib/epg/formatTime";
 import { loadPlaylist } from "@/lib/playlistStorage";
+import type { NowAndNextResult } from "@/types/epg";
 import type { ApiErrorResponse, XtreamLiveStream } from "@/types/xtream";
 
 type StreamsState = {
@@ -54,6 +56,9 @@ export default function LiveCategoryPage() {
     error: null,
     streams: [],
   });
+  const [epgByStreamId, setEpgByStreamId] = useState<Map<number, NowAndNextResult>>(
+    new Map()
+  );
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -127,6 +132,7 @@ export default function LiveCategoryPage() {
             error: null,
             streams: data as XtreamLiveStream[],
           });
+          setEpgByStreamId(new Map());
         }
       } catch {
         if (!cancelled) {
@@ -145,6 +151,46 @@ export default function LiveCategoryPage() {
       cancelled = true;
     };
   }, [router, id, categoryId]);
+
+  useEffect(() => {
+    if (state.streams.length === 0) return;
+
+    let cancelled = false;
+    const loadNowAndNext = async () => {
+      try {
+        const response = await fetch("/api/epg/now-and-next", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            xtreamChannels: state.streams.map((stream) => ({
+              stream_id: stream.stream_id,
+              name: stream.name,
+            })),
+          }),
+        });
+
+        const data: unknown = await response.json();
+        if (!response.ok || !data || typeof data !== "object") return;
+        const results = (data as { results?: unknown }).results;
+        if (!Array.isArray(results)) return;
+
+        if (!cancelled) {
+          const map = new Map<number, NowAndNextResult>();
+          for (const item of results as NowAndNextResult[]) {
+            map.set(item.stream_id, item);
+          }
+          setEpgByStreamId(map);
+        }
+      } catch {
+        // graceful no-EPG fallback
+      }
+    };
+
+    void loadNowAndNext();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.streams.length]);
 
   return (
     <div className="px-4 py-8">
@@ -180,15 +226,24 @@ export default function LiveCategoryPage() {
 
         {!state.isLoading && !state.error && (
           <ul className="space-y-2">
-            {state.streams.map((stream) => (
-              <li key={stream.stream_id}>
+            {state.streams.map((stream) => {
+              const epg = epgByStreamId.get(stream.stream_id);
+              const nowText = epg?.now
+                ? `Nu: ${epg.now.title} (${formatTimeRange(epg.now.start, epg.now.stop)})`
+                : null;
+              const nextText =
+                !epg?.now && epg?.next
+                  ? `Nästa: ${epg.next.title} (${formatStartTime(epg.next.start)})`
+                  : null;
+              return (
+                <li key={stream.stream_id}>
                 <button
                   type="button"
                   onClick={() => {
                     void router.push(
                       `/live/watch/${stream.stream_id}?categoryId=${encodeURIComponent(
                         categoryId ?? ""
-                      )}`
+                      )}&streamName=${encodeURIComponent(stream.name)}`
                     );
                   }}
                   className="flex w-full cursor-pointer items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-left transition hover:border-zinc-500 hover:bg-zinc-700/60"
@@ -198,11 +253,14 @@ export default function LiveCategoryPage() {
                     <p className="truncate text-sm font-medium text-zinc-100">
                       {stream.name}
                     </p>
+                    {nowText && <p className="truncate text-xs text-zinc-400">{nowText}</p>}
+                    {nextText && <p className="truncate text-xs text-zinc-400">{nextText}</p>}
                     <p className="text-xs text-zinc-400">#{stream.num}</p>
                   </div>
                 </button>
-              </li>
-            ))}
+                </li>
+              );
+            })}
             {state.streams.length === 0 && (
               <li className="rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-300">
                 Inga kanaler hittades i den här kategorin.

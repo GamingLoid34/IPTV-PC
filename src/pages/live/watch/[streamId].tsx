@@ -2,7 +2,9 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type HlsType from "hls.js";
+import { formatStartTime, formatTimeRange } from "@/lib/epg/formatTime";
 import { loadPlaylist } from "@/lib/playlistStorage";
+import type { NowAndNextResult } from "@/types/epg";
 
 type PlayerStatus = "idle" | "loading" | "ready" | "playing" | "error";
 
@@ -37,7 +39,7 @@ function safeStringify(value: unknown): string {
 
 export default function WatchPage() {
   const router = useRouter();
-  const { streamId, categoryId } = router.query;
+  const { streamId, categoryId, streamName } = router.query;
   const hlsRef = useRef<HlsType | null>(null);
 
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
@@ -45,6 +47,7 @@ export default function WatchPage() {
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("idle");
   const [playerError, setPlayerError] = useState<PlayerError | null>(null);
   const [nonFatalEventsCount, setNonFatalEventsCount] = useState(0);
+  const [nowAndNext, setNowAndNext] = useState<NowAndNextResult | null>(null);
 
   const streamIdValue = useMemo(
     () => (typeof streamId === "string" ? streamId : null),
@@ -53,6 +56,10 @@ export default function WatchPage() {
   const categoryIdValue = useMemo(
     () => (typeof categoryId === "string" ? categoryId : null),
     [categoryId]
+  );
+  const streamNameValue = useMemo(
+    () => (typeof streamName === "string" ? streamName : null),
+    [streamName]
   );
   const backHref = categoryIdValue
     ? `/live/category/${encodeURIComponent(categoryIdValue)}`
@@ -85,6 +92,44 @@ export default function WatchPage() {
     setPlayerError(null);
     setNonFatalEventsCount(0);
   }, [router, streamId, streamIdValue]);
+
+  useEffect(() => {
+    if (!streamIdValue || !streamNameValue) {
+      setNowAndNext(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadNowAndNext = async () => {
+      try {
+        const numericStreamId = Number(streamIdValue);
+        if (!Number.isFinite(numericStreamId)) return;
+
+        const response = await fetch("/api/epg/now-and-next", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            xtreamChannels: [{ stream_id: numericStreamId, name: streamNameValue }],
+          }),
+        });
+        const data: unknown = await response.json();
+        if (!response.ok || !data || typeof data !== "object") return;
+        const results = (data as { results?: unknown }).results;
+        if (!Array.isArray(results) || results.length === 0) return;
+
+        if (!cancelled) {
+          setNowAndNext((results[0] as NowAndNextResult) ?? null);
+        }
+      } catch {
+        // silent no-EPG fallback
+      }
+    };
+
+    void loadNowAndNext();
+    return () => {
+      cancelled = true;
+    };
+  }, [streamIdValue, streamNameValue]);
 
   const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
     setVideoElement(el);
@@ -247,6 +292,39 @@ export default function WatchPage() {
             className="aspect-video w-full"
           />
         </div>
+
+        {(nowAndNext?.now || nowAndNext?.next) && (
+          <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/30 p-3 text-sm">
+            <h2 className="text-sm font-semibold text-zinc-200">Program</h2>
+            {nowAndNext.now && (
+              <div className="space-y-1">
+                <p className="text-zinc-200">
+                  <span className="font-medium">Just nu:</span> {nowAndNext.now.title} kl{" "}
+                  {formatTimeRange(nowAndNext.now.start, nowAndNext.now.stop)}
+                </p>
+                {nowAndNext.now.description && (
+                  <p
+                    className="text-zinc-400"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {nowAndNext.now.description}
+                  </p>
+                )}
+              </div>
+            )}
+            {nowAndNext.next && (
+              <p className="text-zinc-300">
+                <span className="font-medium">Nästa:</span> {nowAndNext.next.title} kl{" "}
+                {formatStartTime(nowAndNext.next.start)}
+              </p>
+            )}
+          </section>
+        )}
 
         <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/30 p-3 text-sm">
           <h2 className="text-sm font-semibold text-zinc-200">Debug info</h2>

@@ -34,3 +34,10 @@ export interface SearchIndexEntry {
   startMs: number;
   stopMs: number;
 }
+
+export interface NowAndNextResult {
+  stream_id: number;
+  epgChannelId: string | null;
+  now: EpgProgramme | null;
+  next: EpgProgramme | null;
+}
