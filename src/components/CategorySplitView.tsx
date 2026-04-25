@@ -16,9 +16,9 @@ type CategorySplitViewProps = {
 };
 
 const STORAGE_KEY = "iptv-pc:split-view-width";
-const DEFAULT_WIDTH_PERCENT = 30;
-const MIN_WIDTH_PERCENT = 20;
-const MAX_WIDTH_PERCENT = 50;
+const DEFAULT_WIDTH_PERCENT = 20;
+const MIN_WIDTH_PERCENT = 15;
+const MAX_WIDTH_PERCENT = 35;
 
 export function CategorySplitView({
   categories,
@@ -39,8 +39,8 @@ export function CategorySplitView({
     if (!raw) return;
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
-    if (parsed < MIN_WIDTH_PERCENT || parsed > MAX_WIDTH_PERCENT) return;
-    setPanelWidthPercent(parsed);
+    const clamped = Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, parsed));
+    setPanelWidthPercent(clamped);
   }, []);
 
   useEffect(() => {
