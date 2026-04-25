@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { FavoriteToggle } from "@/components/FavoriteToggle";
+import { SmartListView } from "@/components/SmartListView";
 import type { FavoriteEntry } from "@/lib/favoritesStorage";
 import { loadPlaylist } from "@/lib/playlistStorage";
+import { SMART_LIST_RULES } from "@/lib/smartListRules";
 import { useFavorites } from "@/lib/useFavorites";
 import type {
   NowAndNextResult,
@@ -17,6 +19,7 @@ import type {
 } from "@/types/xtream";
 
 type TabType = "live" | "movies" | "series";
+type TopTabType = "stars" | "swedish" | "nordic" | "uhd" | "sport";
 type LiveMap = Record<number, XtreamLiveStream>;
 type MovieInfoMap = Record<number, XtreamVodInfo>;
 type SeriesInfoMap = Record<number, XtreamSeriesInfo>;
@@ -221,7 +224,8 @@ export default function FavoritesPage() {
   const liveFavs = useFavorites("live");
   const movieFavs = useFavorites("movies");
   const seriesFavs = useFavorites("series");
-  const [activeTab, setActiveTab] = useState<TabType>("live");
+  const [topTab, setTopTab] = useState<TopTabType>("stars");
+  const [subTab, setSubTab] = useState<TabType>("live");
   const [liveMap, setLiveMap] = useState<LiveMap>({});
   const [movieMap, setMovieMap] = useState<MovieInfoMap>({});
   const [seriesMap, setSeriesMap] = useState<SeriesInfoMap>({});
@@ -249,7 +253,7 @@ export default function FavoritesPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== "live" || !credentials) return;
+    if (topTab !== "stars" || subTab !== "live" || !credentials) return;
     let cancelled = false;
     setIsLoadingLive(true);
     void loadAllLiveStreams(credentials)
@@ -265,10 +269,10 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials]);
+  }, [subTab, topTab, credentials]);
 
   useEffect(() => {
-    if (activeTab !== "movies" || !credentials) return;
+    if (topTab !== "stars" || subTab !== "movies" || !credentials) return;
     let cancelled = false;
     setIsLoadingMovies(true);
     void loadMoviesInfo(credentials, movieFavs.favorites)
@@ -284,10 +288,10 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials, movieFavs.favorites]);
+  }, [subTab, topTab, credentials, movieFavs.favorites]);
 
   useEffect(() => {
-    if (activeTab !== "series" || !credentials) return;
+    if (topTab !== "stars" || subTab !== "series" || !credentials) return;
     let cancelled = false;
     setIsLoadingSeries(true);
     void loadSeriesInfo(credentials, seriesFavs.favorites)
@@ -303,10 +307,10 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials, seriesFavs.favorites]);
+  }, [subTab, topTab, credentials, seriesFavs.favorites]);
 
   useEffect(() => {
-    if (!credentials || liveFavs.favorites.length === 0 || activeTab !== "live") {
+    if (!credentials || liveFavs.favorites.length === 0 || topTab !== "stars" || subTab !== "live") {
       setNowAndNext({});
       return;
     }
@@ -335,7 +339,7 @@ export default function FavoritesPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, credentials, liveFavs.favorites, liveMap]);
+  }, [subTab, topTab, credentials, liveFavs.favorites, liveMap]);
 
   const liveRows = useMemo(
     () =>
@@ -478,36 +482,93 @@ export default function FavoritesPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab("live")}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              activeTab === "live"
+            onClick={() => setTopTab("stars")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              topTab === "stars"
                 ? "bg-zinc-700 text-white"
                 : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
             }`}
           >
-            Kanaler ({liveFavs.count})
+            ★ Stjärnor
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("movies")}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              activeTab === "movies"
+            onClick={() => setTopTab("swedish")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              topTab === "swedish"
                 ? "bg-zinc-700 text-white"
                 : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
             }`}
           >
-            Filmer ({movieFavs.count})
+            🇸🇪 Svenskt
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("series")}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              activeTab === "series"
+            onClick={() => setTopTab("nordic")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              topTab === "nordic"
                 ? "bg-zinc-700 text-white"
                 : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
             }`}
           >
-            Serier ({seriesFavs.count})
+            🌍 Nordiskt
+          </button>
+          <button
+            type="button"
+            onClick={() => setTopTab("uhd")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              topTab === "uhd"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            }`}
+          >
+            📺 4K
+          </button>
+          <button
+            type="button"
+            onClick={() => setTopTab("sport")}
+            className={`rounded-lg px-4 py-2 text-sm ${
+              topTab === "sport"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            }`}
+          >
+            ⚽ Sport
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSubTab("live")}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              subTab === "live"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            }`}
+          >
+            Kanaler {topTab === "stars" ? `(${liveFavs.count})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab("movies")}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              subTab === "movies"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            }`}
+          >
+            Filmer {topTab === "stars" ? `(${movieFavs.count})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab("series")}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              subTab === "series"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            }`}
+          >
+            Serier {topTab === "stars" ? `(${seriesFavs.count})` : ""}
           </button>
         </div>
 
@@ -517,9 +578,10 @@ export default function FavoritesPage() {
           </p>
         )}
 
-        {activeTab === "live" && renderLive()}
-        {activeTab === "movies" && renderMovies()}
-        {activeTab === "series" && renderSeries()}
+        {topTab === "stars" && subTab === "live" && renderLive()}
+        {topTab === "stars" && subTab === "movies" && renderMovies()}
+        {topTab === "stars" && subTab === "series" && renderSeries()}
+        {topTab !== "stars" && <SmartListView rule={SMART_LIST_RULES[topTab]} type={subTab} />}
       </div>
     </main>
   );
